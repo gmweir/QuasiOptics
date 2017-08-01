@@ -36,10 +36,20 @@ l3 = 5.56e-3
 l3 = _np.round(1e3*0.5*l3)/1e3
 thickness = l3
 
-## My prototype
-##   fco = 125.5 GHz
-#D = 1.4e-3 #[m], diameter of guide holes
-#S = 1.5e-3 #[m] spacing of guide holes
+## My prototype for OP1.2a CECE protection
+#   fco = 140.5 GHz
+#D = 1.25e-3 #[m], diameter of guide holes
+#S = 1.4e-3 #[m] spacing of guide holes
+##l3 = 3.0e-3
+
+##   fco = 146.4 GHz
+#D = 1.20e-3 #[m], diameter of guide holes
+#S = 1.4e-3 #[m] spacing of guide holes
+##l3 = 3.0e-3
+
+#   fco = 125.5 GHz
+D = 1.4e-3 #[m], diameter of guide holes
+S = 1.5e-3 #[m] spacing of guide holes
 #l3 = 3.0e-3
 
 #   fco = 125.5 GHz, ~ 20% reflection at 140 GHz
@@ -59,14 +69,11 @@ thickness = l3
 #S = 1.6e-3 #[m] spacing of guide holes
 #l3 = 5e-3
 
+## My prototype for OP1.2a Reflectometry protection + ECE signal diplexing
 #   fco = 110 GHz
-D = 1.6e-3 #[m], diameter of guide holes
-S = 1.8e-3 #[m] spacing of guide holes
+#D = 1.6e-3 #[m], diameter of guide holes
+#S = 1.8e-3 #[m] spacing of guide holes
 #l3 = 3.0e-3 # [m], plate thickness
-#l3 = 5.0e-3 # [m], plate thickness
-#l3 = 6.0e-3 # [m], plate thickness
-#l3 = 9.0e-3 # [m], plate thickness
-#l3 = 2.7e-3 # [m], plate thickness
 
 ##   fco = 113 GHz
 #D = 1.55e-3 #[m], diameter of guide holes
@@ -524,14 +531,14 @@ centers = _np.asarray(centers)
 ax.axis('equal')
 print(ncircles)
 
-_plt.title('%0.1f mm Dichroic Plate:  %3.1f GHz < f < %3.1f GHz \n S=%0.1f mm, D=%0.1f mm, N=%i holes'%(1e3*thickness, fco, fcd, 1e3*S, 1e3*D, ncircles))
-hfig.savefig(_os.path.join(wd,'DichroicPlate_drawing_%s_%3.1fGHz_d%0.1f_s%0.1f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
+_plt.title('%0.1f mm Dichroic Plate:  %3.1f GHz < f < %3.1f GHz \n S=%0.2f mm, D=%0.2f mm, N=%i holes'%(1e3*thickness, fco, fcd, 1e3*S, 1e3*D, ncircles))
+hfig.savefig(_os.path.join(wd,'DichroicPlate_drawing_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
 
 # ======================================= #
 
 delimiter = '\n'
 hdr = "Dichroic plate characteristics: Filled with %s"%(matname,) + delimiter
-hdr += "Hexagonal hole pattern (%i holes): diameter=%2.1f mm, spacing=%2.1f mm, thickness=%2.1f mm"%(ncircles, 1e3*D, 1e3*S, 1e3*l3) + delimiter
+hdr += "Hexagonal hole pattern (%i holes): diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(ncircles, 1e3*D, 1e3*S, 1e3*l3) + delimiter
 hdr += "filter cut-offs: %3.1f<f<%3.1f GHz"%(fco, fcd) + delimiter
 hdr += "Power transmission (perpendicular): %3.1f dB@%3.0f GHz"%(T2_perp_140, 140) + delimiter
 hdr += "Power transmission (parallel): %3.1f dB@%3.0f GHz"%(T2_parr_140, 140) + delimiter
@@ -539,7 +546,7 @@ hdr += "Porosity limit (%0.2f): %3.1f dB"%(porosity, por_log) + delimiter
 
 print(hdr)
 
-filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.1f_s%0.1f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
+filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
 _np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr)
 
 # ======================================= #
@@ -563,13 +570,13 @@ _plt.axvline(x=fco, linestyle='--', color='k')
 _plt.axvline(x=fcd, linestyle='--', color='k')
 _plt.axhline(y=por_log, linestyle='--', color='k')
 
-_plt.text(x=140.0, y=-25, s='Hexagonal hole pattern: \n diameter=%2.1f mm, \n spacing=%2.1f mm, \n thickness=%2.1f mm'%(1e3*D, 1e3*S, 1e3*l3))
-#_plt.text(x=fco+5, y=ylims[1]-15, s='Hexagonal hole pattern: \n diameter=%2.1f mm, \n spacing=%2.1f mm'%(1e3*D, 1e3*S))
+_plt.text(x=140.0, y=-25, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm, \n thickness=%2.1f mm'%(1e3*D, 1e3*S, 1e3*l3))
+#_plt.text(x=fco+5, y=ylims[1]-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm'%(1e3*D, 1e3*S))
 #_plt.text(x=xlims[0]+5.0, y=ylims[1]-20, s=' thickness=%2.1f mm'%(1e3*l3,))
 
 # ==== # 
 
-hfig.savefig(_os.path.join(wd,'DichroicPlate_%s_%3.1fGHz_d%0.1f_s%0.1f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
+hfig.savefig(_os.path.join(wd,'DichroicPlate_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
 
 # ======================================= #
     
@@ -580,7 +587,7 @@ _ax1.plot(1e-9*freq, _np.abs(T2_perp))
 _ax1.plot(1e-9*freq, _np.abs(T2), 'r--')
 
 _ax1.set_ylabel('Pow. Trans. Coeff.')
-_ax1.set_title('Perpendicular incidence')
+_ax1.set_title('Perpendicular Polarization')
 _ax1.set_ylim((0,1))
 _ax1.axvline(x=fco, linestyle='--')
 _ax1.axvline(x=fcd, linestyle='--')
@@ -589,7 +596,7 @@ _ax1.set_xlabel('Freq [GHz]')
 _ax4 = _plt.subplot(1,2,2, sharex=_ax1)
 _ax4.plot(1e-9*freq, _np.abs(T2_parr))
 _ax4.plot(1e-9*freq, _np.abs(T2), 'r--')
-_ax4.set_title('Parrallel incidence')
+_ax4.set_title('Parrallel Polarization')
 _ax4.set_ylim((0,1))
 _ax4.axvline(x=fco, linestyle='--')
 _ax4.axvline(x=fcd, linestyle='--')
@@ -628,7 +635,7 @@ _ax4.set_xlabel('Freq [GHz]')
 #_ax6.axvline(x=fco, linestyle='--')
 #_ax6.axvline(x=fcd, linestyle='--')
 
-hfig.savefig(_os.path.join(wd,'DichroicPlate_AngleEffect_%s_%3.1fGHz_d%0.1f_s%0.1f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
+hfig.savefig(_os.path.join(wd,'DichroicPlate_AngleEffect_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
 
 # ======================================= #
 

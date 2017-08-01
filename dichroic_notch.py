@@ -9,6 +9,7 @@ Created on Fri Jul 28 17:39:02 2017
 
 import scipy as _scipy
 import numpy as _np
+import os as _os
 import matplotlib.pyplot as _plt
 from pybaseutils import speed_of_light
 
@@ -26,6 +27,8 @@ freq = 1e9*_np.linspace(100.0, 250.0, 250)
 
 ##### Material 1 - Free space
 cc, mu0, eps0 = speed_of_light()
+
+wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Notch')
 
 # ====================================================================== #
 th = 45    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface) 
