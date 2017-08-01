@@ -157,6 +157,49 @@ class qoptics(Struct):
         
         return I0*(self.wo/self.wz)**2.0 * _np.exp(-2.0*rr**2.0/self.wz**2.0)            
 
+
+    # ============= Basic stuff ================= #
+
+    def elliptic_mirror(self, r1, r2):
+        foc = 1.0/ (1.0/r1 + 1.0/r2)
+        return self.thinlens(foc)
+
+    def two_thin_lens(self, f1, d, f2):
+        return self.ABCD(-f2/f1, f1+f2, 0.0, -f1/f2)
+            
+#    def elliptic_mirror_design(self):
+        """        
+        a = semi-major radius of ellipse
+        b = semi-minor radius of ellipse
+        ellipsoid:  (x**2.0 + y**2.0)/b**2.0 + z**2.0 / a**2.0 = 1.0
+
+        eccentricity:        e = sqrt(1.0-b**2.0 / a**2.0)
+
+        Distance between any point on ellipse and focii:  P is point on ellipse  
+            (1) r1 + r2 = a (r1 is distance to focus 1 from P, r2 is distance to focus 2 from P)
+
+        Focal distance:      
+            (2) c = 2*e*a  Linear distance between the two focii, F1 / F2                    
+            
+        Waist of input / output beam (w1 / w2) are not at F1 / F2, but at distances
+            d1 / d2 from a point on the ellipse, P            
+           
+        Ideal design has radius of curvature of phase fronts equal to the distance 
+            from a point on ellipsoidal surface to each focii
+            (3) r1 = R(d1) / r2 = R(d2)
+            
+        Treat ellipsoidal mirror as a thin lens:   
+            (4) 1/f = 1/r1 + 1/r2
+        
+        Ellipse design requires choosing w01/w02, then setting radius of 
+            curvature of the phase fronts on the elllipsoidal surface (3)
+            
+            That determines the focal lengths of the equivalent thin lens (ellisoidal mirror), 
+            as well as the semi-major axis of the ellipse. (1) + (4)
+            
+            The eccentricity (and semi-minor axis of the ellipse) is set by the 
+            required distance between the two Focii. (2)
+        """
         
     # ============= Built-in geometric optics ray matrices ================= #
 
@@ -176,6 +219,16 @@ class qoptics(Struct):
         """
         return _np.array( [[A, B],[C, D]], dtype=complex)
 
+    def uniform_media(self, d):
+        """
+        Propagation through uniform media: ABCD matrix for a Gaussian beam
+        Input
+            d - [m], distance to propagate
+        Output 
+            ABCD - [m], ABCD matrix for beam propagation through uniform media a distance d
+        """
+        return self.ABCD(1.0, d, 0.0, 1.0)       
+
     def freespace(self, d):
         """
         Free space propagation ABCD matrix for a Gaussian beam
@@ -184,7 +237,7 @@ class qoptics(Struct):
         Output 
             ABCD - [m], ABCD matrix for beam propagation through free space a distance d
         """
-        return self.ABCD(1.0, d, 0.0, 1.0)       
+        return self.uniform_media(d)
         
     def refraction_flatinterface(self, n1, n2):
         """
