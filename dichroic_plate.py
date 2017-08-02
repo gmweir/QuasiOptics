@@ -32,14 +32,16 @@ freq = 1e9*_np.linspace(100.0, 250.0, 250)
 th = 45    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface) 
 #l3 = 2.4e-3 # [m], plate thickness
 
-l3 = 5.56e-3
-l3 = _np.round(1e3*0.5*l3)/1e3
+l3 = 5e-3
+#l3 = 3.0e-3
+#l3 = _np.round(1e3*0.5*l3)/1e3
 thickness = l3
 
 ## My prototype for OP1.2a CECE protection
 #   fco = 140.5 GHz
-#D = 1.25e-3 #[m], diameter of guide holes
+D = 1.25e-3 #[m], diameter of guide holes
 #S = 1.4e-3 #[m] spacing of guide holes
+S = 1.45e-3 #[m] spacing of guide holes
 ##l3 = 3.0e-3
 
 ##   fco = 146.4 GHz
@@ -47,17 +49,13 @@ thickness = l3
 #S = 1.4e-3 #[m] spacing of guide holes
 ##l3 = 3.0e-3
 
-#   fco = 125.5 GHz
+##   fco = 125.5 GHz
 D = 1.4e-3 #[m], diameter of guide holes
 S = 1.5e-3 #[m] spacing of guide holes
-#l3 = 3.0e-3
-
-#   fco = 125.5 GHz, ~ 20% reflection at 140 GHz
-#D = 1.4e-3 #[m], diameter of guide holes
 #S = 1.6e-3 #[m] spacing of guide holes
-##l3 = 1.5e-3
-##l3 = 2.4e-3
-#l3 = 3e-3
+#S = 1.8e-3 #[m] spacing of guide holes
+#S = 2.0e-3 #[m] spacing of guide holes
+#l3 = 3.0e-3
 
 ###   fco = 121.1 GHz
 #D = 1.45e-3 #[m], diameter of guide holes
@@ -72,7 +70,8 @@ S = 1.5e-3 #[m] spacing of guide holes
 ## My prototype for OP1.2a Reflectometry protection + ECE signal diplexing
 #   fco = 110 GHz
 #D = 1.6e-3 #[m], diameter of guide holes
-#S = 1.8e-3 #[m] spacing of guide holes
+#S = 1.8e-3 #[m] spacing of guide holes, 0.1 mm wall spacing too small. 0.2 acceptable by shop
+#S = 2.0e-3 #[m] spacing of guide holes, 0.1 mm wall spacing too small. 0.2 acceptable by shop
 #l3 = 3.0e-3 # [m], plate thickness
 
 ##   fco = 113 GHz
@@ -412,6 +411,7 @@ T2_parr_140 = _np.interp(140,1e-9*freq,T2_parr_log)
 # sketch 
 length = 8.3e-2 # cm
 width = 6e-2 # cm
+offset = thickness
 
 amaj = 0.5*3.9e-2
 bmin = 0.5*2.8e-2
@@ -458,31 +458,36 @@ elli = _np.vstack((amaj*_np.cos(angle), bmin*_np.sin(angle))).T
 Dscrew = 0.004
 
 hfig = _plt.figure()
-_plt.plot((-length/2, -length/2), (-width/2, width/2), 'k-')
-_plt.plot(( length/2,  length/2), (-width/2, width/2), 'k-')
-_plt.plot((-length/2,  length/2), (-width/2,-width/2), 'k-')
-_plt.plot((-length/2,  length/2), ( width/2, width/2), 'k-')
-_plt.plot(length/2-1.3e-2 +0.5*Dscrew*_np.cos(angle), width/2-0.85e-2+0.5*Dscrew*_np.sin(angle), 'k-')
-_plt.plot(length/2-1.3e-2 +0.5*Dscrew*_np.cos(angle), -width/2+0.85e-2+0.5*Dscrew*_np.sin(angle), 'k-')
-_plt.plot(-length/2+1.3e-2 +0.5*Dscrew*_np.cos(angle), width/2-0.85e-2+0.5*Dscrew*_np.sin(angle), 'k-')
-_plt.plot(-length/2+1.3e-2 +0.5*Dscrew*_np.cos(angle), -width/2+0.85e-2+0.5*Dscrew*_np.sin(angle), 'k-')
-_plt.plot(elli[:,0], elli[:,1], 'k--')  # ellipse
 
-_plt.plot((-length/2, -length/2), (-thickness/2-0.04, thickness/2-0.04), 'k-')
-_plt.plot(( length/2,  length/2), (-thickness/2-0.04, thickness/2-0.04), 'k-')
-_plt.plot((-length/2,  length/2), (-thickness/2-0.04,-thickness/2-0.04), 'k-')
-_plt.plot((-length/2,  length/2), ( thickness/2-0.04, thickness/2-0.04), 'k-')
+# 4 plate walls - plan view
+_plt.plot((-1e3*length/2, -1e3*length/2), (-1e3*width/2, 1e3*width/2), 'k-')
+_plt.plot(( 1e3*length/2,  1e3*length/2), (-1e3*width/2, 1e3*width/2), 'k-')
+_plt.plot((-1e3*length/2,  1e3*length/2), (-1e3*width/2,-1e3*width/2), 'k-')
+_plt.plot((-1e3*length/2,  1e3*length/2), ( 1e3*width/2, 1e3*width/2), 'k-')
 
-_plt.plot((-thickness/2+0.05, -thickness/2+0.05), (-width/2, width/2), 'k-')
-_plt.plot(( thickness/2+0.05,  thickness/2+0.05), (-width/2, width/2), 'k-')
-_plt.plot((-thickness/2+0.05,  thickness/2+0.05), (-width/2,-width/2), 'k-')
-_plt.plot((-thickness/2+0.05,  thickness/2+0.05), ( width/2, width/2), 'k-')
+# 4 x 4mm bolt holes
+_plt.plot(1e3*length/2-1e3*1.3e-2 +1e3*0.5*Dscrew*_np.cos(angle), 1e3*width/2-1e3*0.85e-2+1e3*0.5*Dscrew*_np.sin(angle), 'k-')
+_plt.plot(1e3*length/2-1e3*1.3e-2 +1e3*0.5*Dscrew*_np.cos(angle), -1e3*width/2+1e3*0.85e-2+1e3*0.5*Dscrew*_np.sin(angle), 'k-')
+_plt.plot(-1e3*length/2+1e3*1.3e-2 +1e3*0.5*Dscrew*_np.cos(angle), 1e3*width/2-1e3*0.85e-2+1e3*0.5*Dscrew*_np.sin(angle), 'k-')
+_plt.plot(-1e3*length/2+1e3*1.3e-2 +1e3*0.5*Dscrew*_np.cos(angle), -1e3*width/2+1e3*0.85e-2+1e3*0.5*Dscrew*_np.sin(angle), 'k-')
+_plt.plot(1e3*elli[:,0], 1e3*elli[:,1], 'k--')  # ellipse
+#_plt.axvline(x= 1e3*length/2-1e3*1.3e-2, color='k', linestyle='--')
+#_plt.axvline(x=-1e3*length/2+1e3*1.3e-2, color='k', linestyle='--')
+#_plt.axhline(y= 1e3*width/2-1e3*0.85e-2, color='k', linestyle='--')
+#_plt.axhline(y=-1e3*width/2+1e3*0.85e-2, color='k', linestyle='--')
 
-ax = _plt.gca()
-#ax.add_patch(Ellipse((0, 0), 2*amaj, 2*bmin, fill=False, hatch=None))
-ax.set_xlim((-length, length))
-ax.set_ylim((-width, width))    
-    
+# 4 plate walls - lower projection (side view)
+_plt.plot((-1e3*length/2, -1e3*length/2), (-1e3*thickness/2-1e3*offset-1e3*0.5*width, 1e3*thickness/2-1e3*offset-1e3*0.5*width), 'k-')
+_plt.plot(( 1e3*length/2,  1e3*length/2), (-1e3*thickness/2-1e3*offset-1e3*0.5*width, 1e3*thickness/2-1e3*offset-1e3*0.5*width), 'k-')
+_plt.plot((-1e3*length/2,  1e3*length/2), (-1e3*thickness/2-1e3*offset-1e3*0.5*width,-1e3*thickness/2-1e3*offset-1e3*0.5*width), 'k-')
+_plt.plot((-1e3*length/2,  1e3*length/2), ( 1e3*thickness/2-1e3*offset-1e3*0.5*width, 1e3*thickness/2-1e3*offset-1e3*0.5*width), 'k-')
+
+# 4 plate walls - right projection (side view)
+_plt.plot((-1e3*thickness/2+1e3*(offset+length/2), -1e3*thickness/2+1e3*(offset+length/2)), (-1e3*width/2, 1e3*width/2), 'k-')
+_plt.plot(( 1e3*thickness/2+1e3*(offset+length/2),  1e3*thickness/2+1e3*(offset+length/2)), (-1e3*width/2, 1e3*width/2), 'k-')
+_plt.plot((-1e3*thickness/2+1e3*(offset+length/2),  1e3*thickness/2+1e3*(offset+length/2)), (-1e3*width/2,-1e3*width/2), 'k-')
+_plt.plot((-1e3*thickness/2+1e3*(offset+length/2),  1e3*thickness/2+1e3*(offset+length/2)), ( 1e3*width/2, 1e3*width/2), 'k-')
+   
 xrow = S*_np.cos(60.*_np.pi/180.)
 ycol = S*_np.sin(60.*_np.pi/180.)
 
@@ -520,17 +525,24 @@ for ii in range(Nvert):
         if ybound and xbound and closest_approach(_np.atleast_2d([xcen,ycen]), elli) >= 0.5*D:
             xhex, yhex = hexagon_generator(S*_np.tan(30.0*_np.pi/180.0), (xcen,ycen))
             
-#            ax.plot(xhex, yhex, 'k-')
-            ax.plot(circ[:,0], circ[:,1], 'k-')
+#            _plt.plot(1e3*xhex, 1e3*yhex, 'k-')
+            _plt.plot(1e3*circ[:,0], 1e3*circ[:,1], 'k-')
             
             centers.append([xcen, ycen])
             ncircles += 1
     # end for
 # end for
 centers = _np.asarray(centers)
-ax.axis('equal')
+
+#ax.set_xlim((-1e3*(0.5*length+0.1), 1e3*(0.5*length+0.1)))
+#ax.set_ylim((-1e3*(0.5*width+0.1), 1e3*(0.5*width+0.1)))    
+#_plt.axis((-1e3*(0.5*length+0.1), 1e3*(0.5*length+0.1),-1e3*(0.5*width+0.1), 1e3*(0.5*width+0.1)))
+#_plt.axis('equal')
+_plt.xlim((-1e3*(0.5*length+offset), 1e3*(0.5*length+2*offset+thickness)))
+_plt.ylim((-1e3*(0.5*width+2*offset+thickness), 1e3*(0.5*width+offset)))
 print(ncircles)
 
+#_plt.axis('off')
 _plt.title('%0.1f mm Dichroic Plate:  %3.1f GHz < f < %3.1f GHz \n S=%0.2f mm, D=%0.2f mm, N=%i holes'%(1e3*thickness, fco, fcd, 1e3*S, 1e3*D, ncircles))
 hfig.savefig(_os.path.join(wd,'DichroicPlate_drawing_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
 
@@ -547,19 +559,23 @@ hdr += "Porosity limit (%0.2f): %3.1f dB"%(porosity, por_log) + delimiter
 print(hdr)
 
 filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
-_np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr)
+_np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
+
+filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
+_np.savetxt(filnam, (freq,T2_parr,T2_perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
 
 # ======================================= #
 
-hfig = _plt.figure('thickness_scan')
-#hfig = _plt.figure()
+#hfig = _plt.figure('thickness_scan')
+hfig = _plt.figure()
 
 _plt.plot(1e-9*freq, T2_perp_log, '-')
 _plt.plot(1e-9*freq, T2_parr_log, '--')
 xlims = _plt.xlim()
-#xlims = (60,260)
+xlims = (xlims[0],210)
 ylims = _plt.ylim()
-ylims = (ylims[0], 0.0)
+#ylims = (ylims[0], 0.0)
+ylims = (-30, 0.0)
 _plt.xlim(xlims)
 _plt.ylim(ylims)
 
@@ -570,7 +586,7 @@ _plt.axvline(x=fco, linestyle='--', color='k')
 _plt.axvline(x=fcd, linestyle='--', color='k')
 _plt.axhline(y=por_log, linestyle='--', color='k')
 
-_plt.text(x=140.0, y=-25, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm, \n thickness=%2.1f mm'%(1e3*D, 1e3*S, 1e3*l3))
+_plt.text(x=fco+5, y=-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm, \n thickness=%2.1f mm'%(1e3*D, 1e3*S, 1e3*l3))
 #_plt.text(x=fco+5, y=ylims[1]-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm'%(1e3*D, 1e3*S))
 #_plt.text(x=xlims[0]+5.0, y=ylims[1]-20, s=' thickness=%2.1f mm'%(1e3*l3,))
 
@@ -580,9 +596,10 @@ hfig.savefig(_os.path.join(wd,'DichroicPlate_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.pn
 
 # ======================================= #
     
-hfig = _plt.figure()
+hfig = _plt.figure(figsize=(8,3.5))
 
 _ax1 = _plt.subplot(1,2,1)
+_ax1.set_position([ 0.125,  0.15, 0.35,  0.75])
 _ax1.plot(1e-9*freq, _np.abs(T2_perp))
 _ax1.plot(1e-9*freq, _np.abs(T2), 'r--')
 
@@ -594,6 +611,8 @@ _ax1.axvline(x=fcd, linestyle='--')
 _ax1.set_xlabel('Freq [GHz]')
 
 _ax4 = _plt.subplot(1,2,2, sharex=_ax1)
+_ax4.set_position([ 0.55,  0.15, 0.35,  0.75])
+
 _ax4.plot(1e-9*freq, _np.abs(T2_parr))
 _ax4.plot(1e-9*freq, _np.abs(T2), 'r--')
 _ax4.set_title('Parrallel Polarization')
