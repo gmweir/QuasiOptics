@@ -12,13 +12,25 @@ from __future__ import absolute_import, with_statement, absolute_import, \
                        division, print_function, unicode_literals
 
 import numpy as _np
+import scipy as _scipy
+import os as _os
 import matplotlib.pyplot as _plt
+import cmath
 
 # Pybaseutils
-from .Struct import Struct
-from .utils import speed_of_light
+try:
+    from ..Struct import Struct
+    from ..utils import speed_of_light
+except:
+    from pybaseutils.Struct import Struct
+    from pybaseutils.utils import speed_of_light
+# end try
 
 # ========================================================================== #
+
+
+##### Material 1 - Free space
+cc, mu0, eps0 = speed_of_light()    
 
 
 
@@ -335,7 +347,174 @@ class qoptics(Struct):
         k = _np.cos(psi)/_np.cos(th)
         return self.ABCD(k, d/(n*k), 0.0, 1.0/k)
 
+    # Reference 3:  Chen
+    # Circular openings with Equilateral triangular lattice
+
+    # ====================================================================== #
+    # ======================= Dichroic filters ============================= #
+    
+    def dichroic_plate(self, freq, diameter, spacing, thickness, th):           
+
+        wavelength = cc/freq
+        radius = 0.5*diameter
         
+        #       For radius>0.28*spacing   and spacing<0.57 * wavelength
+        A = 0.5 * _np.sqrt(3.0)  # hexagonal guide array  
+        fc1 = 1e-9*1.841*cc/(_np.pi*2.0*radius)  # [GHz], designed lower cut-off frequency
+        fc2 = 1e-9*cc/(spacing*A)             # [GHz], diffraction limited upper cut-off frequency  
+        # wlco = cc/(1e9*fc1)/_np.sqrt(eps3)
+    
+        J1prime = _scipy.special.jvp(v=1, z=4.0*_np.pi*radius/(_np.sqrt(3)*spacing), n=1)
+        A = 12.0 * _np.sqrt(_np.asarray(4.0/3.0 * (wavelength/spacing)**2.0 - 1.0, dtype=complex)) \
+            * (J1prime/(1.0-(4*_np.pi*radius/(1.841*_np.sqrt(3.0)*spacing))**2.0))**2.0
+        A -= 12.0/_np.sqrt(_np.asarray(4.0/3.0 * (wavelength/spacing)**2.0 - 1.0, dtype=complex)) \
+            * (J1prime/(4.0*_np.pi*radius/(_np.sqrt(3.0)*spacing)))**2.0    
+        
+        B = 0.33*(spacing/radius)**2.0 * _np.sqrt(_np.asarray((0.293*wavelength/radius)**2.0 - 1.0, dtype=complex) )
+        
+        beta = (2.0*_np.pi/wavelength)*_np.sqrt(_np.asarray((0.293*wavelength/radius)**2.0 - 1.0, dtype=complex))
+    
+        R2 = _np.zeros( (len(freq),), dtype=complex)
+        T2 = _np.zeros_like(R2)
+        for ii in range(len(freq)):    
+
+            AA = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness)))
+            BB = 1.0/  (1.0 - 1j*(A[ii]+B[ii]*      coth(beta[ii]*thickness))) 
+            # Reflection
+            R2[ii] = AA.copy() + BB.copy() - 1.0
+        
+            # Transmission
+            T2[ii] = AA.copy() - BB.copy()
+            
+            # R2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) + 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness))) - 1.0
+            # T2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) - 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness)))
+            # if self.verbose:    print(_np.abs(R2[ii]), _np.abs(1-T2[ii]))
+        
+        # For oblique incidence, there is a correction here:
+        porosity = _np.pi*(2.0*radius)**2.0 / (2.0*_np.sqrt(3)*spacing**2.0)
+        T2perp = T2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-porosity))
+        T2parr = T2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-porosity))
+
+        # Does it work the same for reflection?
+        # R2_perp = R2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-porosity))
+        # R2_parr = R2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-porosity))
+                
+        phperp = _np.arctan(_np.imag(T2perp) /_np.real(T2perp))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
+        phparr = _np.arctan(_np.imag(T2parr) /_np.real(T2parr))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees        
+
+        T2perp = _np.abs(T2perp)
+        T2parr = _np.abs(T2parr)
+        
+        R2perp = 1.0-T2perp
+        R2parr = 1.0-T2parr
+
+        if self.verbose:
+            print("Dichroic plate characteristics: ")
+            print("Hexagonal hole pattern: diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.2f mm"%(1e3*2.0*radius, 1e3*spacing, 1e3*thickness))
+            print("filter cut-offs: %3.1f<f<%3.1f GHz"%(fc1, fc2))
+
+        return T2perp, T2parr, porosity, fc1, fc2
+        
+    def dichroic_notch_response(self, freq=None, diameter=1.6e-3, spacing=2e-3, thickness=5e-3, th=45, plotit=True, wd=None):
+        if freq is None and hasattr(self, 'freq'): freq=self.freq # endif
+        
+        T2perp, T2parr, por, fc1, fc2 = self.dichroic_plate(freq, diameter, spacing, thickness, th)
+        
+        T2_perp_log, T2_parr_log = [_np.zeros((len(freq),2), dtype=float) for ii in range(2)]
+        porosity, fco, fcd = [_np.zeros((2,), dtype=float) for ii in range(3)]
+        T2_perp_log[:,0], T2_parr_log[:,0], porosity[0], fco[0], fcd[1] = \
+            self.dichroic_plate(0.5*diameter.copy(), spacing.copy(), thickness.copy())
+        T2_perp_log[:,1], T2_parr_log[:,1], porosity[1], fco[0], fcd[1] = \
+            self.dichroic_plate(0.5*diameter.copy(), spacing.copy(), thickness.copy())        
+        
+        T2_perp_log = T2_perp_log[:,0]*(1-T2_perp_log[:,1])
+        T2_parr_log = T2_parr_log[:,0]*(1-T2_parr_log[:,1])
+        
+        T2_perp_log = 20*_np.log10(T2_perp_log)
+        T2_parr_log = 20*_np.log10(T2_parr_log)
+        
+        if plotit:
+            # ======================================= #
+
+            hfig = _plt.figure()
+            _plt.plot(1e-9*freq, T2_perp_log, '-')
+            _plt.plot(1e-9*freq, T2_parr_log, '--')
+            _plt.xlim((105,180))
+            
+            _plt.xlabel('frequency [GHz]')
+            _plt.ylabel(r'|T$^2$| [dB]')
+            #_plt.title(r'Power Transmission Coefficient: f$_{c,o}$<%3.1f, f$_{c,d}$<%3.1f GHz'%(fco,fcd) )
+            _plt.axvline(x=fco[0], linestyle='--', color='k')
+            _plt.axvline(x=fco[1], linestyle='--', color='k')
+
+        if wd is not None and plotit and _os.path.exists(wd):
+            # wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
+            hfig.savefig(_os.path.join(wd,'DichroicNotch_%3.1fGHz_%3.1fGHz.png'%(fco[0],fco[1])), dpi=200, transparent=True)            
+
+    def dichroic_plate_response(self, freq=None, diameter=1.6e-3, spacing=2e-3, thickness=5e-3, th=45, plotit=True, wd=None):
+        if freq is None and hasattr(self, 'freq'): 
+            freq=self.freq 
+        elif freq is None:
+            freq = 1e9*_np.linspace(100.0, 250.0, 250)            
+        # endif
+        
+        T2perp, T2parr, por, fc1, fc2 = self.dichroic_plate(freq, diameter, spacing, thickness, th)
+                
+        T2_perp_log = 20*_np.log10(T2perp)
+        T2_parr_log = 20*_np.log10(T2parr)
+
+
+        # ======================================= #
+        
+        delimiter = '\n'
+        hdr = "Dichroic plate characteristics: Filled with %s"%(matname,) + delimiter
+        hdr += "Hexagonal hole pattern (%i holes): diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(ncircles, 1e3*D, 1e3*S, 1e3*l3) + delimiter
+        hdr += "filter cut-offs: %3.1f<f<%3.1f GHz"%(fco, fcd) + delimiter
+        hdr += "Power transmission (perpendicular): %3.1f dB@%3.0f GHz"%(T2_perp_140, 140) + delimiter
+        hdr += "Power transmission (parallel): %3.1f dB@%3.0f GHz"%(T2_parr_140, 140) + delimiter
+        hdr += "Porosity limit (%0.2f): %3.1f dB"%(porosity, por_log) + delimiter
+        
+        print(hdr)
+        
+        filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
+        _np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
+        
+        filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
+        _np.savetxt(filnam, (freq,T2_parr,T2_perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
+
+
+
+        
+        if plotit:
+            # ======================================= #
+
+            hfig = _plt.figure()
+            
+            _plt.plot(1e-9*freq, T2_perp_log, '-')
+            _plt.plot(1e-9*freq, T2_parr_log, '--')
+            xlims = _plt.xlim()
+            xlims = (xlims[0],210)
+            ylims = _plt.ylim()
+            #ylims = (ylims[0], 0.0)
+            ylims = (-30, 0.0)
+            _plt.xlim(xlims)
+            _plt.ylim(ylims)
+            
+            _plt.xlabel('frequency [GHz]')
+            _plt.ylabel(r'|T$^2$| [dB]')
+            _plt.title(r'Power Transmission Coefficient: f$_{c,o}$<%3.1f, f$_{c,d}$<%3.1f GHz'%(fco,fcd) )
+            _plt.axvline(x=fco, linestyle='--', color='k')
+            _plt.axvline(x=fcd, linestyle='--', color='k')
+            _plt.axhline(y=por_log, linestyle='--', color='k')
+            
+            _plt.text(x=fco+5, y=-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm, \n thickness=%2.1f mm'%(1e3*D, 1e3*S, 1e3*l3))
+
+
+
+        if wd is not None and plotit and _os.path.exists(wd):
+            # wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
+            hfig.savefig(_os.path.join(wd,'DichroicNotch_%3.1fGHz_%3.1fGHz.png'%(fco[0],fco[1])), dpi=200, transparent=True)            
+            
     # ====================================================================== #
     # ===================== Higher order modes ============================= #
 
@@ -457,9 +636,66 @@ class qoptics(Struct):
         del self._Nrefr        
         
     # ====================================================================== #            
+    # ======================= Common Materials ============================= #            
+
+
+    def _mats(self, material):           
+        # ============== Vacuum filled guide ============== #        
+        if material.upper().find("VACUUM")>-1 or material.upper().find("NONE")>-1 or material is None:
+            epsr = 1.0
+            loss_tangent = 0.0   
+        
+        # ============== Air filled guide ============== #
+        elif material.upper().find("AIR")>-1:
+            epsr = 1.0006  # relative permeability of material in the guide, air
+            loss_tangent = 0.0  # loss tangent of material in guide
+        
+        # ============== Polystyrene filled guide ============== #
+        elif material.lower().find("polystyrene")>-1 or material.lower().find('ps')>-1:
+            epsr = 2.4  # relative permeability of material in the guide, air
+            loss_tangent = 0.0  # loss tangent of material in guide
+        
+        ## ============== Polyamide filled guide ============== #
+        elif material.lower().find("polyamide")>-1 or material.lower().find("kapton")>-1:  # is this actually for 'polyimide'?
+            epsr = 4.3  # relative permeability of material in the guide
+            loss_tangent = 0.004  # loss tangent of material in guide
+        
+        # ============== Mica filled guide ============== #
+        elif material.lower().find("mica")>-1 or material.lower().find("glimmer")>-1:
+            epsr = 5.7  # relative permeability of material in the guide
+            loss_tangent = 0.000  # loss tangent of material in guide
+        
+        # ============== Teflon (PTFE) filled guide ============== #
+        elif material.lower().find("ptfe")>-1 or material.lower().find("teflon")>-1:  
+            epsr = 2.1  # relative permeability of material in the guide
+            loss_tangent = 0.001  # loss tangent of material in guide
+        
+        # ============== Sapphire filled guide ============== #
+        elif material.lower().find("saphire")>-1: 
+            epsr = 10.0  # relative permeability of material in the guide
+            loss_tangent = 0.000  # loss tangent of material in guide
+        
+        # ============== Fused Quartz filled guide ============== #
+        elif material.lower().find("quartz")>-1:
+            epsr = 3.78  # relative permeability of material in the guide
+            loss_tangent = 0.000  # loss tangent of material in guide
+        
+        # ============== Alumina ceramic ============== #
+        elif material.lower().find("alumina")>-1:
+            epsr = 8.66  # relative permeability of material in the guide
+            loss_tangent = 0.0018  # loss tangent of material in guide
+        
+        # ============== Macor ceramic ============== #
+        elif material.lower().find("macor")>-1:
+            epsr = 5.67  # relative permeability of material in the guide
+            loss_tangent = 0.0071  # loss tangent of material in guide
+        # endif
+        
+        return epsr, loss_tangent
+    # ====================================================================== #            
     # ====================================================================== #            
         
 # end class quasioptics
     
-    
-    
+def coth(val):
+    return 1.0/cmath.tanh(val)    

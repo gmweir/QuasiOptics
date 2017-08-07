@@ -32,6 +32,7 @@ freq = 1e9*_np.linspace(100.0, 250.0, 250)
 th = 45    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface) 
 #l3 = 2.4e-3 # [m], plate thickness
 
+#l3 = 3e-3
 l3 = 5e-3
 #l3 = 3.0e-3
 #l3 = _np.round(1e3*0.5*l3)/1e3
@@ -40,8 +41,8 @@ thickness = l3
 ## My prototype for OP1.2a CECE protection
 #   fco = 140.5 GHz
 D = 1.25e-3 #[m], diameter of guide holes
-#S = 1.4e-3 #[m] spacing of guide holes
-S = 1.45e-3 #[m] spacing of guide holes
+S = 1.4e-3 #[m] spacing of guide holes
+#S = 1.45e-3 #[m] spacing of guide holes
 ##l3 = 3.0e-3
 
 ##   fco = 146.4 GHz
@@ -50,12 +51,13 @@ S = 1.45e-3 #[m] spacing of guide holes
 ##l3 = 3.0e-3
 
 ##   fco = 125.5 GHz
-D = 1.4e-3 #[m], diameter of guide holes
-S = 1.5e-3 #[m] spacing of guide holes
+#D = 1.4e-3 #[m], diameter of guide holes
+#S = 1.5e-3 #[m] spacing of guide holes
 #S = 1.6e-3 #[m] spacing of guide holes
 #S = 1.8e-3 #[m] spacing of guide holes
 #S = 2.0e-3 #[m] spacing of guide holes
 #l3 = 3.0e-3
+
 
 ###   fco = 121.1 GHz
 #D = 1.45e-3 #[m], diameter of guide holes
@@ -69,9 +71,9 @@ S = 1.5e-3 #[m] spacing of guide holes
 
 ## My prototype for OP1.2a Reflectometry protection + ECE signal diplexing
 #   fco = 110 GHz
-#D = 1.6e-3 #[m], diameter of guide holes
+D = 1.6e-3 #[m], diameter of guide holes
 #S = 1.8e-3 #[m] spacing of guide holes, 0.1 mm wall spacing too small. 0.2 acceptable by shop
-#S = 2.0e-3 #[m] spacing of guide holes, 0.1 mm wall spacing too small. 0.2 acceptable by shop
+S = 2.0e-3 #[m] spacing of guide holes, 0.1 mm wall spacing too small. 0.2 acceptable by shop
 #l3 = 3.0e-3 # [m], plate thickness
 
 ##   fco = 113 GHz
@@ -181,7 +183,7 @@ wl140 = cc/(140e9)/_np.sqrt(eps3)
 wavelength = cc/freq
 wl_3 = wavelength/_np.sqrt(eps3)
 guide_wl = _np.ones((len(freq),), dtype=complex)
-guide_wl *= wl_3/(1.0-(wl_3/(1.706*D))**2.0)   # guide wavelength for the TE11 mode
+guide_wl *= wl_3/(1.0-(wl_3/(1.706*D))**2.0)   # guide wavelength for the TE11 mode in cylindrical waveguide
 guide_140 = wl140/(1.0-(wl140/(1.706*D))**2.0)   # guide wavelength for the TE11 mode
 
 # ====== #
@@ -562,7 +564,8 @@ filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.
 _np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
 
 filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
-_np.savetxt(filnam, (freq,T2_parr,T2_perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
+#_np.savetxt(filnam, (freq,T2_parr,T2_perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
+_np.savetxt(filnam, _np.asarray((freq,T2_parr,T2_perp), dtype=float).T, fmt='%7.3e %6.3f %6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
 
 # ======================================= #
 

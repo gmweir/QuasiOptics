@@ -38,28 +38,21 @@ th = 45    # [deg], angle of incidence to dichroic plate (measured in free space
 #D = 1.4e-3 #[m], diameter of guide holes
 #S = 1.5e-3 #[m] spacing of guide holes
 
-fco = _np.array([139e9, 141e9], dtype=float)
+#fco = _np.array([139e9, 141e9], dtype=float)
+fco = _np.array([135e9, 141☺e9, 145e9], dtype=float)
+#fco = _np.array([125e9, 139.5e9], dtype=float)
+#fco = _np.array([150e9, 130e9], dtype=float)
 D = (1.841*cc)/(fco*_np.pi)  # [m], diameter of guide holes
 #S = _np.round(10e3*D)/10e3
-S = _np.array([1.5e-3, 1.5e-3], dtype=float)
-thickness = 10e-3
+#S = _np.array([1.5e-3, 1.5e-3], dtype=float)
+#S = D+0.4e-3
+S = D+1e-9
+thickness = 5e-3
 
 # ====================================================================== #
 
 ##### Material 1 - Free space
 cc, mu0, eps0 = speed_of_light()
-
-# =============== #
-
-##### Material 2 - Material in contact with the metal plate
-eps2 = 1.0006 # relative permeability of material in waveguide
-
-# =============== #
-
-# ============== Air filled guide ============== #
-#       My prototype
-eps3 = 1.0006  # relative permeability of material in the guide, air
-loss_tangent = 0.0  # loss tangent of material in guide
 
 # ====================================================================== #
 
@@ -94,33 +87,64 @@ def dichroic_plate(radius, spacing, thickness):
     for ii in range(len(freq)):    
         R2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) + 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness))) - 1.0
         T2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) - 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness)))
-        print(_np.abs(R2[ii]), _np.abs(1-T2[ii]))
-    
-    # For oblique incidence, there is a correction here:
+        # print(_np.abs(R2[ii]), _np.abs(1-T2[ii]))
+    # end for
+
+    # Porosity
     por = _np.pi*(2.0*radius)**2.0 / (2.0*_np.sqrt(3)*spacing**2.0)
-    T2perp = T2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-por))
-    T2parr = T2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-por))
-    
-    T2perp = _np.abs(T2perp)
-    T2parr = _np.abs(T2parr)
-#    T2perp = 20*_np.log10(T2perp)
-#    T2parr = 20*_np.log10(T2parr)
-    
+
+    T2 = _np.abs(T2)
+    R2 = _np.abs(R2)
+        
     print("Dichroic plate characteristics: ")
     print("Hexagonal hole pattern: diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.2f mm"%(1e3*2.0*radius, 1e3*spacing, 1e3*thickness))
     print("filter cut-offs: %3.1f<f<%3.1f GHz"%(fc1, fc2))
-    return T2perp, T2parr, por, fc1, fc2
+#    return T2perp, T2parr, por, fc1, fc2
+    return T2, R2, por, fc1, fc2
 
-T2_perp_log, T2_parr_log = [_np.zeros((len(freq),2), dtype=float) for ii in range(2)]
-porosity, fco, fcd = [_np.zeros((2,), dtype=float) for ii in range(3)]
-T2_perp_log[:,0], T2_parr_log[:,0], porosity[0], fco[0], fcd[1] = dichroic_plate(0.5*D[0].copy(), S[0].copy(), thickness)
-T2_perp_log[:,1], T2_parr_log[:,1], porosity[1], fco[0], fcd[1] = dichroic_plate(0.5*D[1].copy(), S[1].copy(), thickness)
+def correct_angle(T2, radius, spacing, por, th):
+    # For oblique incidence, there is a correction here:
 
+    T2perp = T2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-por))
+    T2parr = T2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-por))
+    return T2perp, T2parr
+
+
+T2perp, R2perp = [_np.zeros((len(freq),3), dtype=float) for ii in range(2)]
+T2parr, R2parr = [_np.zeros((len(freq),3), dtype=float) for ii in range(2)]
+porosity, fco, fcd = [_np.zeros((3,), dtype=float) for ii in range(3)]
+
+#T2perp, R2perp = [_np.zeros((len(freq),2), dtype=float) for ii in range(2)]
+#T2parr, R2parr = [_np.zeros((len(freq),2), dtype=float) for ii in range(2)]
+#porosity, fco, fcd = [_np.zeros((2,), dtype=float) for ii in range(3)]
+
+T2, R2, porosity[0], fco[0], fcd[0] = dichroic_plate(0.5*D[0].copy(), S[0].copy(), thickness)
+T2perp[:,0], T2parr[:,0] = correct_angle(T2, 0.5*D[0].copy(), S[0].copy(), porosity[0], th)
+R2perp[:,0], R2parr[:,0] = correct_angle(R2, 0.5*D[0].copy(), S[0].copy(), porosity[0], th)
+
+T2, R2, porosity[1], fco[1], fcd[1] = dichroic_plate(0.5*D[1].copy(), S[1].copy(), thickness)
+T2perp[:,1], T2parr[:,1] = correct_angle(T2, 0.5*D[1].copy(), S[1].copy(), porosity[1], th)
+R2perp[:,1], R2parr[:,1] = correct_angle(R2, 0.5*D[1].copy(), S[1].copy(), porosity[1], th)
+
+T2, R2, porosity[2], fco[2], fcd[2] = dichroic_plate(0.5*D[2].copy(), S[2].copy(), thickness)
+T2perp[:,2], T2parr[:,2] = correct_angle(T2, 0.5*D[2].copy(), S[2].copy(), porosity[2], th)
+R2perp[:,2], R2parr[:,2] = correct_angle(R2, 0.5*D[2].copy(), S[2].copy(), porosity[2], th)
+
+#    T2perp = 20*_np.log10(T2perp)
+#    T2parr = 20*_np.log10(T2parr)    
+    
+# Notch with 1 big dichroic filter, 1 med. dichroic filter, 1 small dichroic filter, and 1 solid plate
+T2perp = R2perp[:,0]*R2perp[:,1] + T2perp[:,0]*T2perp[:,2]
+T2parr = R2parr[:,0]*R2parr[:,1] + T2parr[:,0]*T2parr[:,2]
+    
 #T2_perp_log = -T2_perp_log[:,0]+T2_perp_log[:,1]
 #T2_parr_log = -T2_parr_log[:,0]+T2_parr_log[:,1]
 
-T2_perp_log = T2_perp_log[:,0]*(1-T2_perp_log[:,1])
-T2_parr_log = T2_parr_log[:,0]*(1-T2_parr_log[:,1])
+#T2_perp_log = T2_perp_log[:,0]*(1.0-T2_perp_log[:,1])
+#T2_parr_log = T2_parr_log[:,0]*(1.0-T2_parr_log[:,1])
+
+#T2_perp_log = T2_perp_log[:,0]*T2_perp_log[:,1]
+#T2_parr_log = T2_parr_log[:,0]*T2_parr_log[:,1]
 
 #T2_perp_log = _np.abs(1-T2_perp_log[:,0])*_np.abs(1-T2_perp_log[:,1])
 #T2_parr_log = _np.abs(1-T2_parr_log[:,0])*_np.abs(1-T2_parr_log[:,1])
@@ -128,8 +152,8 @@ T2_parr_log = T2_parr_log[:,0]*(1-T2_parr_log[:,1])
 #T2_perp_log = _np.abs(1-T2_perp_log)
 #T2_parr_log = _np.abs(1-T2_parr_log)
 
-T2_perp_log = 20*_np.log10(T2_perp_log)
-T2_parr_log = 20*_np.log10(T2_parr_log)
+T2_perp_log = 20*_np.log10(T2perp)
+T2_parr_log = 20*_np.log10(T2parr)
 
 #T2_perp_log = 20*_np.log10(_np.abs(T2_perp_log[:,0])) + 20*_np.log10(_np.abs(T2_perp_log[:,1]))
 #T2_parr_log = 20*_np.log10(_np.abs(T2_parr_log[:,0])) + 20*_np.log10(_np.abs(T2_parr_log[:,1]))
