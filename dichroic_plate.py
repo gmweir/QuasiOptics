@@ -40,8 +40,8 @@ thickness = l3
 
 ## My prototype for OP1.2a CECE protection
 #   fco = 140.5 GHz
-D = 1.25e-3 #[m], diameter of guide holes
-S = 1.4e-3 #[m] spacing of guide holes
+#D = 1.25e-3 #[m], diameter of guide holes
+#S = 1.4e-3 #[m] spacing of guide holes
 #S = 1.45e-3 #[m] spacing of guide holes
 ##l3 = 3.0e-3
 
@@ -65,15 +65,16 @@ S = 1.4e-3 #[m] spacing of guide holes
 #l3 = 3e-3
 
 ####   fco = 117.1 GHz
-#D = 1.5e-3 #[m], diameter of guide holes
+D = 1.5e-3 #[m], diameter of guide holes
 #S = 1.6e-3 #[m] spacing of guide holes
+S = 1.7e-3 #[m] spacing of guide holes  - second prototype
 #l3 = 5e-3
 
 ## My prototype for OP1.2a Reflectometry protection + ECE signal diplexing
 #   fco = 110 GHz
-D = 1.6e-3 #[m], diameter of guide holes
+#D = 1.6e-3 #[m], diameter of guide holes
 #S = 1.8e-3 #[m] spacing of guide holes, 0.1 mm wall spacing too small. 0.2 acceptable by shop
-S = 2.0e-3 #[m] spacing of guide holes, 0.1 mm wall spacing too small. 0.2 acceptable by shop
+#S = 2.0e-3 #[m] spacing of guide holes, 0.1 mm wall spacing too small. 0.2 acceptable by shop
 #l3 = 3.0e-3 # [m], plate thickness
 
 ##   fco = 113 GHz
