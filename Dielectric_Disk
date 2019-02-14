@@ -1,0 +1,135 @@
+% Summing of multiple refelections inside a dielectric disk
+% Allows to vary angle of incidence and number of internal reflections
+% Hans Oosterbeek, 24.07.2017
+% Code produces Fig. 8.6 in thesis (e.q. 8.29 and 8.30):
+% http://alexandria.tue.nl/extra2/200910788.pdf
+
+ 
+
+% Constants
+clear all
+close all
+format long
+
+c = 2.998E8; e0 = 8.854E-12; u0 = 1.257E-6;
+
+% Medium 1 (vacuum)
+td1 = 0; % Loss tangent
+er1r = 1; % real part of complex permittivity
+er1i = td1*er1r; % imaginary part of complex permittivity
+er1 = er1r+i*er1i;
+eta1=sqrt(u0/(er1*e0));
+
+% Medium 2 (Infrasil 301)
+td2 = 2.9E-4; % Loss tangent = 2.9E-4;
+% td2 = 0; % Loss tangent = 2.9E-4;
+er2r = 3.805; % real part of complex permittivity
+%er2r = 5.6; %diamond
+% er2r = 11.5; % Silicium AU doped
+er2i = td2*er2r; % imaginary part of complex permittivity
+er2 = er2r+i*er2i;
+eta2=sqrt(u0/(er2r*e0)); % Take real as in Ch4
+d = 25.75E-3;
+
+
+% Medium 3 (vacuum)
+td3 = 0; % Loss tangent
+er3r = 1; % real part of complex permittivity
+er3i = td3*er3r; % imaginary part of complex permittivity
+er3 = er3r+i*er3i;
+eta3=sqrt(u0/(er3*e0));
+
+% Angle of incidence and angle of refraction
+aoi = 22.5; % Angle of Incidence
+th1= (aoi/180)*pi; % Theta in medium 1 in radians (incidence)
+th2 = asin((sqrt(er1r)/sqrt(er2r))*sin(th1)); % Theta in medium 2 in radians
+th3 = asin((sqrt(er2r)/sqrt(er3r))*sin(th2)); % Theta in medium 3 in radians
+
+% Path length in case a.o.i <> 0
+z2 = d/cos(th2); % path length through medium 2 under oblique incidence
+
+% Electric Field reflection and transmission coefficients for perpendicular
+% polarisation. Taken from Balanis, section 5.3.1.
+G12 = (eta2*cos(th1)-eta1*cos(th2))/(eta2*cos(th1)+eta1*cos(th2)); % Refl. coeff. from media 1 to 2
+G21 = (eta1*cos(th2)-eta2*cos(th1))/(eta1*cos(th2)+eta2*cos(th1)); % Refl. coeff. from media 2 to 1
+G23 = (eta3*cos(th2)-eta2*cos(th3))/(eta3*cos(th2)+eta2*cos(th3)); % Refl. coeff. from media 2 to 3
+T12 = 2*eta2*cos(th1)/(eta2*cos(th1)+eta1*cos(th2)); % Trans. coeff. from media 1 to 2
+T21 = 2*eta1*cos(th2)/(eta1*cos(th2)+eta2*cos(th1)); % Trans. coeff. from media 2 to 1
+T23 = 2*eta3*cos(th2)/(eta3*cos(th2)+eta2*cos(th3)); % Trans. coeff. from media 2 to 3
+
+% Electric Field reflection and transmission coefficients for parallel
+% polarisation. Taken from Balanis, section 5.3.2.
+%{
+G12 = (-1*eta1*cos(th1)+eta2*cos(th2))/(eta1*cos(th1)+eta2*cos(th2)); % Refl. coeff. from media 1 to 2
+G21 = (-1*eta2*cos(th2)+eta1*cos(th1))/(eta2*cos(th2)+eta1*cos(th1)); % Refl. coeff. from media 2 to 1
+G23 = (-1*eta2*cos(th2)+eta3*cos(th3))/(eta2*cos(th2)+eta3*cos(th3)); % Refl. coeff. from media 2 to 3
+T12 = 2*eta2*cos(th1)/(eta1*cos(th1)+eta2*cos(th2)); % Trans. coeff. from media 1 to 2
+T21 = 2*eta1*cos(th2)/(eta2*cos(th2)+eta1*cos(th1)); % Trans. coeff. from media 2 to 1
+T23 = 2*eta3*cos(th2)/(eta2*cos(th2)+eta3*cos(th3)); % Trans. coeff. from media 2 to 3
+%}
+
+nr = 2; % Number of reflections (and number of transmissions) to take into account
+
+% Frequency range of interest
+f_start = 132E9;
+f_step = 10E6;
+f_stop = 148E9;
+% Determine lengt of matrix to store frequency vector
+mlen = ceil((f_stop - f_start)/f_step);
+
+% Compute reflection and transmission coefficients for each frequency (= row in matrix)
+m=1; % count of matrix row
+while m < mlen +1
+     f = f_start + (m-1)*f_step;
+     F(m) = f; % add frequency to frequency vector
+     % Propagation parameters in medium 2 at frequency f
+     lb = c/(f*sqrt(er2)); % wavelength labda
+     B = 2*pi./lb; % propagation constant in medium 2
+     % beta = real(B); % phase constant in medium 2
+     beta = 2*pi*sqrt(er2r)*f/c; % phase constant as in Chapter 4
+     % alpha = imag(B); % attenuation constant in medium 2
+     alpha = 0.5*2*pi*sqrt(er2r)*td2*f/c; % attenuation constant as in Chapter 4
+     phi = 2*beta*d*cos(th2); % phase difference between successive reflected wave fronts
+     % compute reflection coefficient
+     Gin(1)=G12; % First reflection ('n=1')
+     n = 2;
+        while n < (nr+1); % subsequent reflections
+          Gin(n) = T12*T21*(G21^(n-2))*(G23^(n-1))*exp(-i*(n-1)*phi)*...
+                   exp(-2*(n-1)*alpha*z2);
+          n = n+1;
+        end
+     G(m) = sum(Gin);
+     % compute transmission coefficient
+     n = 1;
+        while n < (nr+1);
+          Tout(n)= T12*T23*(G21*G23)^(n-1)*exp(i*(n-1)*phi)*...
+                   exp(-1*(2*n-1)*alpha*z2);
+          n = n+1;
+        end
+     T(m) = sum(Tout);
+     m = m + 1;
+end
+
+% Convert reflection coefficient to "Coefficient of Reflection"
+% Energy in the beam -> multiply by complex conjugate.
+R = G.*conj(G);
+T = T.*conj(T);
+A = abs(1-T-R); % Consdider Incident intensity = unity
+
+F=F./1E9;
+plot(F, T, 'LineWidth', 1.5, 'color', 'red')
+grid on
+hold on
+plot(F, R, 'LineWidth', 1.5, 'color', 'green')
+plot(F, A, 'LineWidth', 1.5, 'color', 'blue')
+
+xlabel('Frequency [GHz]','fontsize', 12)
+ylabel('Fraction of power','fontsize', 12)
+
+XTicks = linspace(132,148,9);
+for j=1:length(XTicks)
+    XTickLabel(j,:)=char(sprintf('%6.0f',XTicks(j)));
+end
+
+set(gca,'XTick',XTicks, 'fontsize', 12);
+set(gca,'XTickLabel',XTickLabel);
