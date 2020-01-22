@@ -23,27 +23,33 @@ Reference 1:  Electrical properties of metal loaded radomes - Robinson (1960)
 """
 
 #wd = _os.path.abspath(_os.path.curdir)
-wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
+#wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
+wd = _os.path.join('G://','Workshop','ECE','QMF','OP2','Dichroic Plate')
 
 freq = 1e9*_np.linspace(100.0, 250.0, 250)
 #freq = 1e9*_np.linspace(10.0, 200.0, 200-10)
 
 # ====================================================================== #
 th = 45    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface) 
+#th = 90    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface) 
 #l3 = 2.4e-3 # [m], plate thickness
 
+#l3 = 1e-3
 #l3 = 3e-3
 l3 = 5e-3
+#l3 = 15e-3
+#l3 = 20e-3
 #l3 = 3.0e-3
 #l3 = _np.round(1e3*0.5*l3)/1e3
 thickness = l3
 
-## My prototype for OP1.2a CECE protection
-#   fco = 140.5 GHz
-#D = 1.25e-3 #[m], diameter of guide holes
+# My prototype for OP2 CECE protection
+#D = 1.30e-3 #[m], diameter of guide holes, 135.1 GHz
+D = 1.27e-3 #[m], diameter of guide holes, 135.1 GHz
+#D = 1.25e-3 #[m], diameter of guide holes, 140.5 GHz
 #S = 1.4e-3 #[m] spacing of guide holes
-#S = 1.45e-3 #[m] spacing of guide holes
-##l3 = 3.0e-3
+S = 1.45e-3 #[m] spacing of guide holes
+#l3 = 3.0e-3
 
 ##   fco = 146.4 GHz
 #D = 1.20e-3 #[m], diameter of guide holes
@@ -64,11 +70,11 @@ thickness = l3
 #S = 1.5e-3 #[m] spacing of guide holes
 #l3 = 3e-3
 
-####   fco = 117.1 GHz
-D = 1.5e-3 #[m], diameter of guide holes
-#S = 1.6e-3 #[m] spacing of guide holes
-S = 1.7e-3 #[m] spacing of guide holes  - second prototype
-#l3 = 5e-3
+#####   fco = 117.1 GHz
+#D = 1.5e-3 #[m], diameter of guide holes
+##S = 1.6e-3 #[m] spacing of guide holes
+#S = 1.7e-3 #[m] spacing of guide holes  - second prototype
+##l3 = 5e-3
 
 ## My prototype for OP1.2a Reflectometry protection + ECE signal diplexing
 #   fco = 110 GHz
@@ -115,11 +121,11 @@ Ltot = l3   # [m], total physical thickness of plate
 #mur = 0.999991 # Copper, relative permeability of cavity walls
 #rho = 1.724e-8 # Copper, ohm-meter, resistivity of walls of cavity 
 #
-mur = 1.00002 # Aluminum, relative permeability of cavity walls
-rho = 2.65e-8 # Aluminum, ohm-meter, resistivity of walls of cavity
+#mur = 1.00002 # Aluminum, relative permeability of cavity walls
+#rho = 2.65e-8 # Aluminum, ohm-meter, resistivity of walls of cavity
 
-#mur = 1.05 # Brass, relative permeability of cavity walls
-#rho = 6.39e-8 # Brass, ohm-meter, resistivity of walls of cavity
+mur = 1.05 # Brass, relative permeability of cavity walls
+rho = 6.39e-8 # Brass, ohm-meter, resistivity of walls of cavity
 
 # ============== Air filled guide ============== #
 #       My prototype
@@ -127,7 +133,7 @@ matname = "Air"
 eps3 = 1.0006  # relative permeability of material in the guide, air
 loss_tangent = 0.0  # loss tangent of material in guide
 
-# ============== Polystyrene filled guide ============== #
+## ============== Polystyrene filled guide ============== #
 #matname = "Polystyrene"
 #eps3 = 2.4  # relative permeability of material in the guide, air
 #loss_tangent = 0.0  # loss tangent of material in guide
