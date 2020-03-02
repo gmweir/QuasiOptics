@@ -804,6 +804,57 @@ def qme_op11_antenna():
     _plt.xlabel('distance along beam-axis')
     _plt.ylabel('beam radius')
     _plt.axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
+    _plt.axvline(x=zantenna+0.40, linewidth=1.0, color='k', linestyle='--')
+
+    xlims = _plt.xlim()
+    ylims = _plt.ylim()
+    xmax = zz[-1]
+    # ymax = tst.wz[-1]
+    ymax = _np.tan(dvrg*_np.pi/180.0)*xmax
+    _plt.plot([0, xmax], [0.0, ymax], 'k--')
+    _plt.xlim(xlims)
+    _plt.ylim([0, ylims[1]])
+# end def
+
+def qme_op12_antenna():
+    """
+    propagate a quasi-optical beam through free-space
+    """
+    # freq = 113e9
+    # w0x = 4.23e-3
+    # w0y = 3.40e-3
+    # z0x = 151.14e-3    # waist position from aperture
+    # z0y = 157.19e-3
+
+    freq = 140e9
+    w0x = 4.31e-3
+    w0y = 3.44e-3
+    z0x = 147.35e-3    # waist position from aperture
+    z0y = 161.42e-3
+
+    # axis along which to determine data
+    # zantenna = -z0x   # aperture of antenna
+    zantenna = -z0y   # aperture of antenna
+    zz = zantenna + _np.linspace(0, 0.50, num=250)
+
+    # start by calculating the free space propagation from a horn a gaussian
+    # beam of specified waist at a specfied position
+
+    # tst = qoptics(freq=freq, wo=w0x, zz=zz)
+    tst = qoptics(freq=freq, wo=w0y, zz=zz)
+    # tst.wo = w0x   # assignment also calculated Rayleigh range
+    # tst.zz = zz
+    tst.RayleighRange()
+    tst.SpotSize()  # calculates beam radius along assigned vector "zz" asssuming free space
+
+    dvrg = (180.0/_np.pi)*tst.lambda0/(_np.pi*tst.Nrefr*tst.wo)
+
+    _plt.figure()
+    _plt.plot(zz, tst.wz, 'k-')
+    _plt.xlabel('distance along beam-axis')
+    _plt.ylabel('beam radius')
+    _plt.axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
+    _plt.axvline(x=zantenna+0.40, linewidth=1.0, color='k', linestyle='--')
 
     xlims = _plt.xlim()
     ylims = _plt.ylim()
@@ -825,17 +876,17 @@ def qme_op11_antenna_mirror():
     inc_angle = 45   # deg, angle of incidence on ellipsoidal mirror
     mirror2plasma = 0.40  # distance from mirror center to plasma focal point
 
-    freq = 129e9
-    w0x = 3.04e-3
-    w0y = 3.40e-3
-    z0x = -2.90e-3    # waist position from aperture
-    z0y = -4.06e-3
+    # freq = 129e9
+    # w0x = 3.04e-3
+    # w0y = 3.40e-3
+    # z0x = -2.90e-3    # waist position from aperture
+    # z0y = -4.06e-3
 
-    # freq = 138e9
-    # w0x = 3.06e-3
-    # w0y = 3.32e-3
-    # z0x = -1.44e-3    # waist position from aperture
-    # z0y = -1.22e-3
+    freq = 138e9
+    w0x = 3.06e-3
+    w0y = 3.32e-3
+    z0x = -1.44e-3    # waist position from aperture
+    z0y = -1.22e-3
 
     # axis along which to determine data
     # zantenna = -z0x   # aperture of antenna
@@ -872,7 +923,7 @@ def qme_op11_antenna_mirror():
     Rperp = bmaj**2.0/Rparr             # Radius of curvature in perpendicular to the plane of incidence
     amin = Rperp
 
-    F1 = _np.sqrt(
+    # F1 = _np.sqrt(
     # ================ #
     angle = _np.linspace(0, 2*_np.pi, 180)
     elli = _np.vstack((bmaj*_np.cos(angle), amin*_np.sin(angle))).T
@@ -883,7 +934,7 @@ def qme_op11_antenna_mirror():
     _plt.plot(_np.zeros((30,)), amin*_np.linspace(0.0, 1.0, num=30), 'k-')
     _plt.text(x=0.5*bmaj, y=0.1*amin, s=r'$b_{maj}$=%4.2f'%(bmaj,))
     _plt.text(x=0.1*bmaj, y=0.5*amin, s=r'$a_{min}$=%4.2f'%(amin,))
-    _plt.plot(
+    # _plt.plot(
     # ================ #
 
     fparr = 0.5*Rparr*_np.cos(inc_angle*_np.pi/180.0)
@@ -956,8 +1007,9 @@ def qme_op11_antenna_mirror():
 
 
 if __name__=="__main__":
-
-    qme_op11_antenna_mirror()
+    qme_op11_antenna()
+    qme_op12_antenna()
+    # qme_op11_antenna_mirror()
 
 
 
