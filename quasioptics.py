@@ -742,20 +742,26 @@ class qoptics(qoptics_1d):
 
     def plotrays(self, _ax1=None):
         import matplotlib.pyplot as _plt
-        if _ax1 is None:
-            hfig1, _ax1 = _plt.subplots(1, 1, sharex=True, squeeze=True)
+#        if _ax1 is None and _ax2 is None:
+#            hfig1, (_ax1, _ax2) = _plt.subplots(2,1, sharex=True, squeeze=True)
+#        else:
+        if 1:
+            if _ax1 is None:
+                hfig1, _ax1 = _plt.subplots(1, 1, sharex=True, squeeze=True)
+#            if _ax2 is None:
+#                hfig2, _ax2 = _plt.subplots(1, 1, sharex=True, squeeze=True)
         # end if
 
         for ray in self.rayz:
             _ax1.plot(self.zz, ray[0, :], 'k-')
         # _ax1.set_xlabel('Distance along beam-axis: z [m]')
+
         _ax1.set_ylabel('Ray Radius: r(z) [m]')
         _ax1.set_title('Ray propagation:')
-        # _ax1.axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
-        # _ax1.axvline(x=zantenna+0.40, linewidth=1.0, color='k', linestyle='--')
-#        xlims = _ax1.get_xlim()
-#        ylims = _ax1.get_ylim()
-#        _ax1.set_ylim((0.0, 1.3*_np.max(self.rayz[:, 0])))
+
+#        _ax2.set_ylabel('Ray angle: th(z) [rad]')
+#        _ax2.set_title('Ray propagation:')
+
         ylims = _ax1.get_ylim()
 
         if hasattr(self, '_ABCD'):
@@ -1275,7 +1281,7 @@ def abcd_prop_test():
 #    tst_y.rays = [0.02, 0*_np.pi/180.0]
     tst_y.rays = []
     for ii in range(5):
-        tst_y.rays.append([ii+0.05, 0*_np.pi/180.0])
+        tst_y.rays.append([0.025*ii, 0*_np.pi/180.0])
     # end for
 
 #    tst_y.BeamPropagation()
