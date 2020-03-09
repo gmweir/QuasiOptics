@@ -7,7 +7,8 @@ Created on Fri Jul 28 17:39:02 2017
 
 
 
-import scipy as _scipy
+#import scipy as _scipy
+from scipy.special import jvp
 import numpy as _np
 import os as _os
 import matplotlib.pyplot as _plt
@@ -30,8 +31,8 @@ freq = 1e9*_np.linspace(100.0, 250.0, 250)
 #freq = 1e9*_np.linspace(10.0, 200.0, 200-10)
 
 # ====================================================================== #
-th = 45    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface) 
-#th = 90    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface) 
+th = 45    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface)
+#th = 90    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface)
 #l3 = 2.4e-3 # [m], plate thickness
 
 #l3 = 1e-3
@@ -91,7 +92,7 @@ S = 1.45e-3 #[m] spacing of guide holes
 ## Radome A from reference
 #D = 0.3125 #[in], diameter of guide holes
 #S = 0.360  #[in] spacing of guide holes
-#th = 0.0    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface) 
+#th = 0.0    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface)
 #l3 = 0.250 # [in], plate thickness
 #
 ## Convert between metric and imperial
@@ -119,7 +120,7 @@ eps2 = 1.0006 # relative permeability of material in waveguide
 Ltot = l3   # [m], total physical thickness of plate
 
 #mur = 0.999991 # Copper, relative permeability of cavity walls
-#rho = 1.724e-8 # Copper, ohm-meter, resistivity of walls of cavity 
+#rho = 1.724e-8 # Copper, ohm-meter, resistivity of walls of cavity
 #
 #mur = 1.00002 # Aluminum, relative permeability of cavity walls
 #rho = 2.65e-8 # Aluminum, ohm-meter, resistivity of walls of cavity
@@ -178,15 +179,15 @@ loss_tangent = 0.0  # loss tangent of material in guide
 
 # ============== Guide parameters ============== #
 
-#A = 1   # square guide array 
+#A = 1   # square guide array
 A = 0.5 * _np.sqrt(3.0)  # hexagonal guide array
 
 fco = 1e-9*1.841*cc/(_np.pi*D)  # [GHz], designed lower cut-off frequency
 fcd = 1e-9*cc/(S*A)             # [GHz], diffraction limited upper cut-off frequency
-  
+
 wlco = cc/(1e9*fco)/_np.sqrt(eps3)
-wl140 = cc/(140e9)/_np.sqrt(eps3)  
-  
+wl140 = cc/(140e9)/_np.sqrt(eps3)
+
 wavelength = cc/freq
 wl_3 = wavelength/_np.sqrt(eps3)
 guide_wl = _np.ones((len(freq),), dtype=complex)
@@ -196,7 +197,7 @@ guide_140 = wl140/(1.0-(wl140/(1.706*D))**2.0)   # guide wavelength for the TE11
 # ====== #
 
 # Hole spacing must be small enough to ensure first grating lobe response lies
-# at an angle of 90 degrees to the direction of propagation.  
+# at an angle of 90 degrees to the direction of propagation.
 #    For an air-dielectric:
 maxS = 1.0*wavelength/A/(_np.sqrt(eps2) + _np.sin(th*_np.pi/180.0))
 # maxS = 1.1547*wavelength/(1+_np.sin(th))   # reference 2
@@ -211,7 +212,7 @@ phi3 = 2*_np.pi*l3/guide_wl
 #tauOgl = 0.0022 + 0.0055*(D/wl_3)
 #phi3 -= 2.0*_np.pi * 2.0*tauOgl # second order correction ... not always applicable
 
-# ====== # 
+# ====== #
 
 # Attenuation constant due to dielectric
 alphd = _np.pi*(guide_wl/wavelength)*loss_tangent/wavelength # np/m
@@ -221,7 +222,7 @@ rhoe = 1.724e-8 # ohm-meter = resistivity of copper
 alphc = 1.5e-4 * _np.sqrt(mur*rho/rhoe)*_np.sqrt(eps3/wavelength) * (guide_wl/(D*wavelength))
 alphc *= 0.420 + (wavelength/(1.706*D))**2.0
 
-# Attenuation constant 
+# Attenuation constant
 alph3 = alphc + alphd
 
 # Propagation constant (multiplied by plate thickness)
@@ -242,24 +243,24 @@ gl = alph3*l3 + 1j*phi3
 #Y1_perp = _np.cos(th*_np.pi/180.0)/377.0
 #Y1_parr = 1.0/(377.0*_np.cos(th*_np.pi/180.0))
 #
-## ==== # 
+## ==== #
 #
 ## Shunt susceptance of zero-thickness perforated metal plate:
 #Bs = _np.ones( (len(freq),), dtype=complex)
 #Bs *= (S/D)**2.0 * (wavelength/D) * (1.0-(1.706*D/wavelength)**2.0) # siemens
 #Bs *= -1.0 * (A/377.0) * (3.0/(2.0*_np.pi))  # = 1.096e-3, hexagonal array
 #
-## ==== # 
+## ==== #
 #
 ## Characteristic admittance of the metal plate containing dielectric filled cavities
 #C3 = 1.522   # constant of proportionality attributed to Marcuvitz referenced in reference 1
 #
-##J1prime = _scipy.special.jvp(v=1, z=_np.pi*D/(4.0*S), n=1) # 1st Derivative of bessel function of 1st kind, of order 1
-#J1prime = _scipy.special.jvp(v=1, z=4.0*_np.pi*0.5*D/(_np.sqrt(3)*S), n=1)
+##J1prime = jvp(v=1, z=_np.pi*D/(4.0*S), n=1) # 1st Derivative of bessel function of 1st kind, of order 1
+#J1prime = jvp(v=1, z=4.0*_np.pi*0.5*D/(_np.sqrt(3)*S), n=1)
 #Y3 = _np.ones((len(freq),), dtype=complex)
 #Y3 *= (1.0 - (0.426*D/S)**2.0 )/(2.0*J1prime)
 #Y3 = Y3**2.0
-#Y3 *= (S/D)**2.0 * (wavelength/guide_wl) 
+#Y3 *= (S/D)**2.0 * (wavelength/guide_wl)
 #Y3 *= A*C3/377.0  # siemens
 #
 ## Circuit parameter propagation
@@ -274,7 +275,7 @@ gl = alph3*l3 + 1j*phi3
 #    ABCD2 = _np.zeros( (2,2), dtype=complex)
 #
 #    ABCD1[0,0] = 1.0
-#    ABCD1[0,1] = 0.0    
+#    ABCD1[0,1] = 0.0
 #    ABCD1[1,0] = 1j*Bs[ii]
 #    ABCD1[1,1] = 1.0
 #
@@ -282,12 +283,12 @@ gl = alph3*l3 + 1j*phi3
 #    ABCD2[0,1] = _np.sinh(gl[ii])/Y3[ii]
 #    ABCD2[1,0] = Y3[ii]*_np.sinh(gl[ii])
 #    ABCD2[1,1] = _np.cosh(gl[ii])
-#    
+#
 #    ABCD = _np.dot(ABCD1, _np.dot(ABCD2, ABCD1))
 #
 #    perp = ABCD[0,0]+ABCD[0,1]*Y1_perp+ABCD[1,0]/Y1_perp+ABCD[1,1]
 #    parr = ABCD[0,0]+ABCD[0,1]*Y1_parr+ABCD[1,0]/Y1_parr+ABCD[1,1]
-#    
+#
 #    # Power transmission coefficient
 #    T2_perp[ii] = 4.0/_np.abs(perp.copy())**2.0
 #    T2_parr[ii] = 4.0/_np.abs(parr.copy())**2.0
@@ -295,7 +296,7 @@ gl = alph3*l3 + 1j*phi3
 #    # Power reflection coefficient
 #    R2_perp[ii] = ((ABCD[0,0]+ABCD[0,1]*Y1_perp-ABCD[1,0]/Y1_perp-ABCD[1,1])/perp)**2.0
 #    R2_parr[ii] = ((ABCD[0,0]+ABCD[0,1]*Y1_parr-ABCD[1,0]/Y1_parr-ABCD[1,1])/parr)**2.0
-#    
+#
 #    # Insertion delay - Phase delay caused by guide (degrees)
 #    ph_perp[ii] = _np.arctan(_np.imag(perp) /_np.real(perp)) - 360.0*Ltot*_np.cos(th*_np.pi/180.0)/wavelength[ii]  # degrees
 #    ph_parr[ii] = _np.arctan(_np.imag(parr) /_np.real(parr)) - 360.0*Ltot*_np.cos(th*_np.pi/180.0)/wavelength[ii]
@@ -311,7 +312,7 @@ gl = alph3*l3 + 1j*phi3
 #Y1_parr = 2.652e-3 # siemens (mho = inverse Ohm), free space admittance
 #Bs = 1.096e-3*(S/D)**2.0 * (wavelength/D) * (1.0-(1.706*D/wavelength)**2.0) # siemens
 #
-#J1prime = _scipy.special.jvp(v=1, z=_np.pi*D/(4.0*S), n=1)
+#J1prime = jvp(v=1, z=_np.pi*D/(4.0*S), n=1)
 #Y2 = 3.496e-3*(S/D)**2.0 * ( (1.0 - (0.426*D/S)**2.0 )/(2.0*J1prime) )*(wavelength/guide_wl) # siemens
 #
 ### Above cut-off the power transmission for NORMAL incidence:
@@ -333,17 +334,17 @@ gl = alph3*l3 + 1j*phi3
 #
 #R2_perp = 1.0-T2_perp
 #R2_parr = 1.0-T2_parr
-#    
+#
 # ======================================= #
 # Reference 3:  Chen
 # Circular openings with Equilateral triangular lattice
 
 #       For 0.5*D>0.28*S   and S<0.57 * wavelength
-J1prime = _scipy.special.jvp(v=1, z=4.0*_np.pi*0.5*D/(_np.sqrt(3)*S), n=1)
+J1prime = jvp(v=1, z=4.0*_np.pi*0.5*D/(_np.sqrt(3)*S), n=1)
 A = 12.0 * _np.sqrt(_np.asarray(4.0/3.0 * (wavelength/S)**2.0 - 1.0, dtype=complex)) \
     * (J1prime/(1.0-(4*_np.pi*0.5*D/(1.841*_np.sqrt(3.0)*S))**2.0))**2.0
 A -= 12.0/_np.sqrt(_np.asarray(4.0/3.0 * (wavelength/S)**2.0 - 1.0, dtype=complex)) \
-    * (J1prime/(4.0*_np.pi*0.5*D/(_np.sqrt(3.0)*S)))**2.0    
+    * (J1prime/(4.0*_np.pi*0.5*D/(_np.sqrt(3.0)*S)))**2.0
 
 B = 0.33*(S/(0.5*D))**2.0 * _np.sqrt(_np.asarray((0.293*wavelength/(0.5*D))**2.0 - 1.0, dtype=complex) )
 
@@ -359,10 +360,10 @@ def coth(val):
 R2 = _np.zeros( (len(freq),), dtype=complex)
 T2 = _np.zeros_like(R2)
 #ph = _np.zeros( (len(freq),), dtype=float)
-for ii in range(len(freq)):    
+for ii in range(len(freq)):
 
     AA = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*l3)))
-    BB = 1.0/  (1.0 - 1j*(A[ii]+B[ii]*      coth(beta[ii]*l3))) 
+    BB = 1.0/  (1.0 - 1j*(A[ii]+B[ii]*      coth(beta[ii]*l3)))
     # Reflection
     R2[ii] = AA.copy() + BB.copy() - 1.0
 
@@ -393,7 +394,7 @@ R2_parr = _np.abs(R2_parr)
 
 #T2_perp *= -1
 #T2_parr *= -1
-    
+
 #ph_perp = _np.zeros_like(T2_perp)
 #ph_parr = _np.zeros_like(T2_parr)
 
@@ -416,8 +417,8 @@ T2_perp_140 = _np.interp(140,1e-9*freq,T2_perp_log)
 T2_parr_140 = _np.interp(140,1e-9*freq,T2_parr_log)
 
 # ======================================= #
-   
-# sketch 
+
+# sketch
 length = 8.3e-2 # cm
 width = 6e-2 # cm
 offset = thickness
@@ -431,19 +432,19 @@ Nhoriz = 2.0*amaj / S
 
 Nvert = int(_np.round(Nvert))
 Nhoriz = int(_np.round(Nhoriz))
-     
-print(Nvert, Nhoriz) 
+
+print(Nvert, Nhoriz)
 
 # =========================================================================== #
 
 def hexagon_generator(edge_length, offset):
   """Generator for coordinates in a hexagon."""
-  npts = 6    
+  npts = 6
   x = _np.zeros((npts,), dtype=float)
   y = _np.zeros((npts,), dtype=float)
   angle = _np.linspace(30, 390, 7)
   for ii in range(npts):
-    x[ii] = offset[0] + edge_length*_np.cos(angle[ii]*_np.pi/180.0) 
+    x[ii] = offset[0] + edge_length*_np.cos(angle[ii]*_np.pi/180.0)
     y[ii] = offset[1] + edge_length*_np.sin(angle[ii]*_np.pi/180.0)
   return x, y
 
@@ -453,17 +454,17 @@ def closest_approach(shape1, shape2):
     n2 = len(shape2[:,0])
     for ii in range(n1):
         for jj in range(n2):
-            dist = _np.sqrt( (shape1[ii,0]-shape2[jj,0])**2.0 + (shape1[ii,1]-shape2[jj,1])**2.0 ) 
+            dist = _np.sqrt( (shape1[ii,0]-shape2[jj,0])**2.0 + (shape1[ii,1]-shape2[jj,1])**2.0 )
             minDist = min(minDist, dist)
         # end for
     # end for
     return minDist
-    
-    
+
+
 # =========================================================================== #
 
-angle = _np.linspace(0, 2*_np.pi, 180)    
-elli = _np.vstack((amaj*_np.cos(angle), bmin*_np.sin(angle))).T 
+angle = _np.linspace(0, 2*_np.pi, 180)
+elli = _np.vstack((amaj*_np.cos(angle), bmin*_np.sin(angle))).T
 Dscrew = 0.004
 
 hfig = _plt.figure()
@@ -496,24 +497,24 @@ _plt.plot((-1e3*thickness/2+1e3*(offset+length/2), -1e3*thickness/2+1e3*(offset+
 _plt.plot(( 1e3*thickness/2+1e3*(offset+length/2),  1e3*thickness/2+1e3*(offset+length/2)), (-1e3*width/2, 1e3*width/2), 'k-')
 _plt.plot((-1e3*thickness/2+1e3*(offset+length/2),  1e3*thickness/2+1e3*(offset+length/2)), (-1e3*width/2,-1e3*width/2), 'k-')
 _plt.plot((-1e3*thickness/2+1e3*(offset+length/2),  1e3*thickness/2+1e3*(offset+length/2)), ( 1e3*width/2, 1e3*width/2), 'k-')
-   
+
 xrow = S*_np.cos(60.*_np.pi/180.)
 ycol = S*_np.sin(60.*_np.pi/180.)
 
-#   1.6 x 1.80 mm 
+#   1.6 x 1.80 mm
 # odd - odd : 272
-# even - even : 272  
+# even - even : 272
 # odd - even : 281
-# even -odd : 281 
+# even -odd : 281
 if Nvert%2>0: # odd
     # hole spacing symmetric about x=0 line, no point at x=0
     voffset = S*_np.sin(60.*_np.pi/180.)
-else: 
+else:
     # point at x=0
     voffset = 0.0
 # endif
 
-if Nhoriz%2==0: # even 
+if Nhoriz%2==0: # even
     hoffset = 0.5*S
 else: #odd
     hoffset = 0.0
@@ -524,19 +525,19 @@ centers = list()
 for ii in range(Nvert):
     for jj in range(Nhoriz):
         xcen = S*(jj-Nhoriz/2)+hoffset
-        ycen = S*_np.sin(60.*_np.pi/180.)*(ii-Nvert/2) + voffset                   
+        ycen = S*_np.sin(60.*_np.pi/180.)*(ii-Nvert/2) + voffset
         if ii%2>0:
             xcen += xrow
         # end if
-        circ = _np.vstack((xcen+0.5*D*_np.cos(angle), ycen+0.5*D*_np.sin(angle))).T 
+        circ = _np.vstack((xcen+0.5*D*_np.cos(angle), ycen+0.5*D*_np.sin(angle))).T
         ybound = (_np.abs(ycen)+0.5*D)<_np.abs(bmin/amaj)*_np.sqrt(_np.abs(amaj**2.0-xcen**2.0))
         xbound = _np.abs(xcen)<_np.abs(amaj-0.5*D)
         if ybound and xbound and closest_approach(_np.atleast_2d([xcen,ycen]), elli) >= 0.5*D:
             xhex, yhex = hexagon_generator(S*_np.tan(30.0*_np.pi/180.0), (xcen,ycen))
-            
+
 #            _plt.plot(1e3*xhex, 1e3*yhex, 'k-')
             _plt.plot(1e3*circ[:,0], 1e3*circ[:,1], 'k-')
-            
+
             centers.append([xcen, ycen])
             ncircles += 1
     # end for
@@ -544,7 +545,7 @@ for ii in range(Nvert):
 centers = _np.asarray(centers)
 
 #ax.set_xlim((-1e3*(0.5*length+0.1), 1e3*(0.5*length+0.1)))
-#ax.set_ylim((-1e3*(0.5*width+0.1), 1e3*(0.5*width+0.1)))    
+#ax.set_ylim((-1e3*(0.5*width+0.1), 1e3*(0.5*width+0.1)))
 #_plt.axis((-1e3*(0.5*length+0.1), 1e3*(0.5*length+0.1),-1e3*(0.5*width+0.1), 1e3*(0.5*width+0.1)))
 #_plt.axis('equal')
 _plt.xlim((-1e3*(0.5*length+offset), 1e3*(0.5*length+2*offset+thickness)))
@@ -553,7 +554,7 @@ print(ncircles)
 
 #_plt.axis('off')
 _plt.title('%0.1f mm Dichroic Plate:  %3.1f GHz < f < %3.1f GHz \n S=%0.2f mm, D=%0.2f mm, N=%i holes'%(1e3*thickness, fco, fcd, 1e3*S, 1e3*D, ncircles))
-hfig.savefig(_os.path.join(wd,'DichroicPlate_drawing_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
+#hfig.savefig(_os.path.join(wd,'DichroicPlate_drawing_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
 
 # ======================================= #
 
@@ -568,11 +569,11 @@ hdr += "Porosity limit (%0.2f): %3.1f dB"%(porosity, por_log) + delimiter
 print(hdr)
 
 filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
-_np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
+#_np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
 
 filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
 #_np.savetxt(filnam, (freq,T2_parr,T2_perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
-_np.savetxt(filnam, _np.asarray((freq,T2_parr,T2_perp), dtype=float).T, fmt='%7.3e %6.3f %6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
+#_np.savetxt(filnam, _np.asarray((freq,T2_parr,T2_perp), dtype=float).T, fmt='%7.3e %6.3f %6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
 
 # ======================================= #
 
@@ -600,12 +601,12 @@ _plt.text(x=fco+5, y=-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n sp
 #_plt.text(x=fco+5, y=ylims[1]-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm'%(1e3*D, 1e3*S))
 #_plt.text(x=xlims[0]+5.0, y=ylims[1]-20, s=' thickness=%2.1f mm'%(1e3*l3,))
 
-# ==== # 
+# ==== #
 
-hfig.savefig(_os.path.join(wd,'DichroicPlate_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
+#hfig.savefig(_os.path.join(wd,'DichroicPlate_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
 
 # ======================================= #
-    
+
 hfig = _plt.figure(figsize=(8,3.5))
 
 _ax1 = _plt.subplot(1,2,1)
@@ -664,12 +665,12 @@ _ax4.set_xlabel('Freq [GHz]')
 #_ax6.axvline(x=fco, linestyle='--')
 #_ax6.axvline(x=fcd, linestyle='--')
 
-hfig.savefig(_os.path.join(wd,'DichroicPlate_AngleEffect_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
+#hfig.savefig(_os.path.join(wd,'DichroicPlate_AngleEffect_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.png'%(matname, fco,1e3*D,1e3*S,1e3*l3)), dpi=200, transparent=True)
 
 # ======================================= #
 
-#Qo = # quality of resonant guide cavity 
-#Qd = 1.0/loss_tangent  # Q due to dissipation in the guide dielectric 
+#Qo = # quality of resonant guide cavity
+#Qd = 1.0/loss_tangent  # Q due to dissipation in the guide dielectric
 ## Qc = 1.0/Qo - 1.0/Qd  # quality of resonant cavity due to dissipation loss in the metal wall
 #
 #Ql = # loaded Q, after taking into account all losses

@@ -13,9 +13,9 @@ from __future__ import absolute_import, with_statement, absolute_import, \
 
 import numpy as _np
 #import scipy as _scipy
-#import os as _os
+import os as _os
 import matplotlib.pyplot as _plt
-#import cmath
+import cmath
 
 # Pybaseutils
 from pybaseutils.Struct import Struct
@@ -31,8 +31,8 @@ except:
 # ========================================================================== #
 
 
-## Base Material - Free space
-#cc, mu0, eps0 = speed_of_light()
+# Base Material - Free space
+cc, mu0, eps0 = speed_of_light()
 
 class qoptics_params(Struct):
 
@@ -170,7 +170,7 @@ class qoptics_params(Struct):
         self._kvec = self.Nrefr*self.k0
 
     def RefractiveIndex(self):
-        self._Nrefr = _np.sqrt(self.cc*self.kvec/self.omega)
+        self._Nrefr = _np.sqrt(cc*self.kvec/self.omega)
 
     def ComplexBeamParameter(self):
         self.qz = self.zz + 1j*self.zr
@@ -194,19 +194,66 @@ class qoptics_params(Struct):
         self._plphz = self.kvec*self.zz
 
     def WavefrontBendingPhaseShift(self):
-        self._wbphz = self.kvec*self.rr**2.0/(2.0*self.Rz)
+        nr = len(self.rr)
+        nz = len(self.zz)
+        kvec = _np.copy(self.kvec)
+        rr = _np.copy(self.rr)
+        Rz = _np.copy(self.Rz)
+        self._wbphz = _np.zeros((nz, nr), dtype=_np.float64)
+        for ii in range(nr):
+            # wavefront bending
+            self._wbphz[:,ii] = kvec*rr[ii]**2.0/(2.0*Rz)
+        # end for
+
+    def power(self, rr=None, P0=1.0):
+        """
+        Stores the beam power as a function of beam radius and distance
+
+            for circle of radius r, the fraction of power transmitted
+                r=w(z)       -> is 0.865
+                r=1.07*w(z)  -> is 0.90
+                r=1.224*w(z) -> is 0.95
+                r=1.52*w(z)  -> is 0.99
+        """
+        return P0*(1.0-_np.exp(-2.0*rr**2.0/self.wz**2.0))
+
+
+    def intensity(self, P0=1.0):
+        """
+        Stores the beam intensity as a function of beam radius and distance
+        """
+        nz = len(self.zz)
+        nr = len(self.rr)
+
+        self.I0 = 2.0*P0/(_np.pi*self.wo**2.0)
+#        self.Iaxis = 2.0*P0/(_np.pi*self.wz**2.0)
+
+        self.Irz = _np.zeros((nz, nr), dtype=_np.float64)
+        for ii in range(nr):
+            self.Irz[:,ii] = self.I0*(self.wo/self.wz)**2.0 * _np.exp(-2.0*self.rr[ii]**2.0/self.wz**2.0)
+        return self.Irz
 
     def GaussianPhase(self):
         self.GouyPhaseShift()
         self.PlaneWavePhaseShift()
-        self.phase = self._plphz - self._gphz
 
         if hasattr(self, 'rr'):
             self.WavefrontBendingPhaseShift()
-            self.phase += self._wbphz
+
+            nr = len(self.rr)
+            nz = len(self.zz)
+            self.phase = _np.zeros((nz, nr), dtype=_np.float64)
+
+            for ii in range(nr):
+                # add in the wavefront bending
+                self.phase[:, ii] = self._plphz - self._gphz + self._wbphz[:, ii]
+            # end for
+        else:
+            self.phase = self._plphz-self._gphz
         # end if
 
-
+#    def ComplexAmplitude(self):
+        # Uv(x,y,z) = Av*exp(-1j*Phase(x,y,z))
 
     # ======= #
 
@@ -216,11 +263,17 @@ class qoptics_params(Struct):
         self.WaveVector()
         return d1*( 1.0+(0.5*self._kvec*wo**2.0/d1)**2.0 )
 
+    # ======= #
+
+    @staticmethod
+    def coth(val):
+        return 1.0/cmath.tanh(val)
+
     # ====================================================================== #
     # ======================= Common Materials ============================= #
 
     @staticmethod
-    def _mats(material):
+    def _mats(material, metal=False):
         # ============== Vacuum filled guide ============== #
         if material.upper().find("VACUUM")>-1 or material.upper().find("NONE")>-1 or material is None:
             epsr = 1.0
@@ -272,6 +325,19 @@ class qoptics_params(Struct):
             loss_tangent = 0.0071  # loss tangent of material in guide
         # endif
 
+        if metal:
+            if material.lower().find("copper")>-1 or material.lower().find('cu')>-1:
+                mur = 0.999991 # Copper, relative permeability of cavity walls
+                rho = 1.724e-8 # Copper, ohm-meter, resistivity of walls of cavity
+            elif material.lower().find("aluminum")>-1 or material.lower().find('al')>-1:
+                mur = 1.00002 # Aluminum, relative permeability of cavity walls
+                rho = 2.65e-8 # Aluminum, ohm-meter, resistivity of walls of cavity
+            elif material.lower().find("brass")>-1 or material.lower().find('bra')>-1:
+                mur = 1.05 # Brass, relative permeability of cavity walls
+                rho = 6.39e-8 # Brass, ohm-meter, resistivity of walls of cavity
+            # end if
+            return mur, rho
+        # end if
         return epsr, loss_tangent
     # end def materials
 
@@ -338,7 +404,7 @@ class qoptics_abcd(qoptics_params):
         """
         return self.uniform_media(d)
 
-    def refraction_flatinterface(self, n1, n2):
+    def refraction_planarinterface(self, n1, n2):
         """
         Refraction at a flat interface between two media
             initial media index of refraction - n1
@@ -348,37 +414,14 @@ class qoptics_abcd(qoptics_params):
 
     def refraction_curvedinterface(self, R, n1, n2):
         """
-        Refraction at a curved interface between two media
-            R - radius of curvature, R>0 for convex (center of curvature  after interface)
+        Refraction at a curved interface between two media (spherical boundary)
+            R - radius of curvature,
+                R>0 for convex  (center of curvature after interface)
+                R<0 for concave  (center of curvature in front of interface)
             initial media index of refraction - n1
             final media index of refraction - n2
         """
         return self.ABCD(1.0, 0.0, (n1-n2)/(R*n2), n1/n2)
-
-    def reflection_flatmirror(self):
-        """
-        Ray transfer matrice for reflection from a flat mirror
-
-        Only valid for mirrors perpendicular to the ray.
-        """
-        return self.ABCD(1.0, 0.0, 0.0, 1.0)
-
-    def reflection_curvedmirror(self, R, th, plane='horizontal'):
-        """
-        Ray transfer matrice for reflection from a curved mirror
-            R is the radius of curvature (R>0) for concave, valid in the paraxial approximation
-            theta in radians, the mirror angle of incidence in the horizontal plane.
-        """
-
-        if plane.lower == 'horizontal':
-            # Effective radius of curvature in the tangential plane (horizontal direction)
-            Re = R*_np.cos(th)
-        else:
-            # Effective radius of curvature in the sagittal plane (vertical direction)
-            Re = R / _np.cos(th)
-        # end if
-
-        return self.ABCD(1.0, 0.0, -2.0/Re, 1.0)
 
     def thinlens(self, flen):
         """
@@ -389,6 +432,36 @@ class qoptics_abcd(qoptics_params):
             ABCD - [m], ABCD matrix for beam propagation through free space a distance d
         """
         return self.ABCD(1.0, 0.0, -1.0/flen, 1.0)
+
+    def reflection_flatmirror(self):
+        """
+        Ray transfer matrice for reflection from a flat mirror
+
+        Only valid for mirrors perpendicular to the ray.
+            (identity matrix)
+        """
+        return self.ABCD(1.0, 0.0, 0.0, 1.0)
+
+    def reflection_curvedmirror(self, R, th, plane='horizontal'):
+        """
+        Ray transfer matrice for reflection from a curved (spherical) mirror
+            (valid in the paraxial approximation)
+            R is the radius of curvature of the spherical mirror
+
+            theta in radians, the mirror angle of incidence in the horizontal plane.
+
+            concave:  R>0
+            convex:   R<0
+        """
+        if plane.lower == 'horizontal':
+            # Effective radius of curvature in the tangential plane (horizontal direction)
+            Re = R*_np.cos(th)
+        else:
+            # Effective radius of curvature in the sagittal plane (vertical direction)
+            Re = R / _np.cos(th)
+        # end if
+
+        return self.ABCD(1.0, 0.0, -2.0/Re, 1.0)
 
     def thicklens(self, n1, n2, R1, R2, t):
         """
@@ -401,6 +474,23 @@ class qoptics_abcd(qoptics_params):
             t = center thickness of lens
         Output
             ABCD - [m], ABCD matrix for beam propagation through free space a distance d
+
+        Note that the implemented formulation is more general, but there is an
+        analytic check that works:
+
+          flat surface on left, curved surface, curvature (R), on right
+                ____________
+               |           )
+               |            )
+               |     n2      )     n1
+               |            )
+               |___________)
+                    t
+
+                    Mlens = |   1.0          t*n1/n2     |
+                            |  -1/f      1.0-n1*t/(n2*f) |
+                        f = (n2-1)*(1/R2-1/R1) + (n-1)**2.0 * t/(n2*R1*R2)
+                          = thicklens_focallength(R1, R2, n2)
         """
         ABCD = matmul(self.refraction_curvedinterface(R2, n2, n1),
                                       self.uniform_media(t))
@@ -415,8 +505,8 @@ class qoptics_abcd(qoptics_params):
         Output
             ABCD - [m], ABCD matrix for beam propagation through free space a distance d
         """
-        ABCD = matmul(self.refraction_flatinterface(n2, n1), self.uniform_media(t))
-        return matmul( ABCD, self.refraction_flatinterface(n1, n2))
+        ABCD = matmul(self.refraction_planarinterface(n2, n1), self.uniform_media(t))
+        return matmul( ABCD, self.refraction_planarinterface(n1, n2))
 
     def rightangleprism(self, th, psi, d, n):
         """
@@ -471,8 +561,36 @@ class qoptics_abcd(qoptics_params):
 
     # ============= Basic stuff ================= #
 
+    def thinlens_focallength(self, r1, r2, n=1.0):
+        """
+        inputs
+            r1 - radius of curvature of first surface
+            r2 - radius of curvature of second surface
+            n  - index of refraction in the lens  (default: 1)
+        outputs
+            flen - focal length of the thin lens
+        """
+        inverse_flen = (n-1.0)*(1.0/r2 - 1.0/r1)  # flen = R1*R2/(R2+R1) = 1/(1/R1+1/R2)
+        return 1.0/inverse_flen
+
+    def thicklens_focallength(self, r1, r2, n, t):
+        """
+        inputs
+            r1 - radius of curvature of first surface
+            r2 - radius of curvature of second surface
+            n  - index of refraction in the lens  (default: 1)
+            t  - thickness of the lens
+        outputs
+            flen - focal length of the thick lens
+        """
+        inverse_flen = (n-1.0)*(1.0/r2 - 1.0/r1) + (n-1.0)**2.0*t/(n*r1*r2)
+        return 1.0/inverse_flen
+
     def elliptic_mirror(self, r1, r2):
-        foc = 1.0/ (1.0/r1 + 1.0/r2)  # R1*R2/(R2+R1) = 1/(1/R1+1/R2)
+        """
+
+        """
+        foc = self.thinlens_focallength(r1, r2)
         return self.thinlens(foc)
 
     def two_thin_lens(self, f1, d, f2):
@@ -487,70 +605,9 @@ class qoptics_abcd(qoptics_params):
     # ====================================================================== #
 # end class
 
-class qoptics_1d(qoptics_abcd):
-    # ====================================================================== #
-    # ===================== Higher order modes ============================= #
 
-    """
-    A thin wrapper around numpy's hermite polynomial module
-    """
-    def HermDecomp(self, nmodes=3, mmodes=3):
-        """
-        Decompose the gaussian beam into the Gauss-Hermite basis set in the
-        cartesian coordinate system
-        """
-#        self.nmodes = nmodes
-#        self.mmodes = mmodes
-#        self.nx = len(self.xx)
-#        self.ny = len(self.yy)
-#        self.nz = len(self.zz)
-#        psi = _np.zeros((self.nmodes, self.mmodes, self.nz, self.nx, self.ny), dtype=_np.complex128)
-#        for ii, zz in enumerate(self.zz):
-#            for nn in range(self.nmodes):
-#                for mm in range(self.mmodes):
-#                    psi[nn,mm,ii,:,:] = _np.sqrt(2**(0.5-nn)/(_np.sqrt(_np.pi)*self.wz[ii]*factorial(nn)))
-#                    psi[nn,mm,ii,:,:] *=H
-        raise NotImplementedError
-
-    herm = _np.polynomial.hermite
-    def HermPoly(coef, domain=None, window=None):
-        raise NotImplementedError
-        # pass
-
-#        _np.polynomial.hermite.Hermite
-#        These are the methods available in that class:
-#            __call__(arg)
-#            basis(deg[, domain, window]) 	Series basis polynomial of degree deg.
-#            cast(series[, domain, window]) 	Convert series to series of this class.
-#            convert([domain, kind, window]) 	Convert series to a different kind and/or domain and/or window.
-#            copy() 	Return a copy.
-#            cutdeg(deg) 	Truncate series to the given degree.
-#            degree() 	The degree of the series.
-#            deriv([m]) 	Differentiate.
-#            fit(x, y, deg[, domain, rcond, full, w, window]) 	Least squares fit to data.
-#            fromroots(roots[, domain, window]) 	Return series instance that has the specified roots.
-#            has_samecoef(other) 	Check if coefficients match.
-#            has_samedomain(other) 	Check if domains match.
-#            has_sametype(other) 	Check if types match.
-#            has_samewindow(other) 	Check if windows match.
-#            identity([domain, window]) 	Identity function.
-#            integ([m, k, lbnd]) 	Integrate.
-#            linspace([n, domain]) 	Return x, y values at equally spaced points in domain.
-#            mapparms() 	Return the mapping parameters.
-#            roots() 	Return the roots of the series polynomial.
-#            trim([tol]) 	Remove trailing coefficients
-#            truncate(size) 	Truncate series to length size.
-#
-    lagu = _np.polynomial.laguerre
-    def LauguerrePoly(coef, domain=None, window=None):
-        raise NotImplementedError
-
-# end def
-
-class qoptics(qoptics_1d):
+class qoptics(qoptics_abcd):
     def __init__(self, **kwargs):
-        self.cc, self.mu0, self.eps0 = speed_of_light()
-
         self.init(**kwargs)
     # end def __init__
 
@@ -559,7 +616,7 @@ class qoptics(qoptics_1d):
         self.verbose = kwargs.get('verbose', True)
         self.freq = kwargs.get('freq', None)
         self.omega = 2.0*_np.pi*self.freq
-        self.lambda0 = self.cc/self.freq
+        self.lambda0 = cc/self.freq
 
         # ====== #
 
@@ -784,14 +841,17 @@ class qoptics(qoptics_1d):
         returns the wave electric field from the fundamental Gaussian beam (TEM00)
         """
         rr = self.rr.copy()
-        rr = _np.atleast_2d(rr)
-        if _np.size(rr, axis=1) == 1:   rr = rr.T  # end if
-        nr = self.nr
-
         zz = self.zz.copy()
-        zz = _np.atleast_2d(zz)
-        if _np.size(zz, axis=0) == 1:   zz = zz.T  # end if
-        nz = self.nz
+        self.nr = len(rr)
+        self.nz = len(zz)
+#        rv, zv = _np.meshgrid(rr, zz)
+#
+#        rr = _np.atleast_2d(rr)
+#        zz = _np.atleast_2d(zz)
+#        if _np.size(rr, axis=1) == 1:   rr = rr.T  # end if
+#        if _np.size(zz, axis=0) == 1:   zz = zz.T  # end if
+#        nr = self.nr
+#        nz = self.nz
 
         # Update the beam radius, curvature of phase fronts and Guoy phase shift
         self.RaylieghRange()
@@ -799,38 +859,14 @@ class qoptics(qoptics_1d):
         self.RadiusCurvaturePhaseFront()
         self.GaussianPhase()
 
-        kvec = self.kvec.copy()
-        wz = self.wz.copy()
-        Rz = self.Rz.copy()
-        gphz = self._gphz.copy()
-
         # === #
-        rr = _np.dot( _np.ones( (nz,1), dtype=float), rr)
-        zz = _np.dot( zz, _np.ones( (1, nr), dtype=float))
 
-        kvec = _np.dot(kvec.reshape(nz,1), _np.ones((1,nr), dtype=float))
-        wz = _np.dot(wz.reshape((nz,1), _np.ones((1, nr), dtype=float)))
-        Rz = _np.dot(Rz.reshape((nz,1), _np.ones((1, nr), dtype=float)))
-        gphz = _np.dot(gphz.reshape((nz,1), _np.ones((1, nr), dtype=float)))
-
-        Exyz = (self.wo/wz) * _np.exp(-rr**2.0 / wz**2.0) * _np.exp(-1j*self.phase)
-
-
-    # ======= #
-
-    def power(self, rr):
-        """
-        Stores the beam intensity as a function of beam radius and distance
-        """
-        if hasattr(self, 'I0'):
-            I0 = self.I0
-        else:
-            I0 = 1.0
-        # endif
-        rr = _np.atleast_2d(rr)
-
-        return I0*(self.wo/self.wz)**2.0 * _np.exp(-2.0*rr**2.0/self.wz**2.0)
-
+        # although the matrix way might be smarter, it is harder to debug
+        self.Erz = _np.zeros((self.nz, self.nr), dtype=_np.complex128)
+        for ii in range(self.nr):
+            self.Erz[:,ii] = (self.wo/self.wz)*_np.exp(-rr[ii]**2.0/self.wz**2.0)*_np.exp(-1j*self.phase[:,ii])
+        # end for
+        return self.Erz
 
 #    def elliptic_mirror_design(self):
         """
@@ -869,71 +905,315 @@ class qoptics(qoptics_1d):
         """
 
     # ====================================================================== #
+    # ===================== Higher order modes ============================= #
+
+    """
+    A thin wrapper around numpy's hermite polynomial module
+    """
+    def HermDecomp(self, nmodes=3, mmodes=3):
+        """
+        Decompose the gaussian beam into the Gauss-Hermite basis set in the
+        cartesian coordinate system
+        """
+#        self.nmodes = nmodes
+#        self.mmodes = mmodes
+#        self.nx = len(self.xx)
+#        self.ny = len(self.yy)
+#        self.nz = len(self.zz)
+#        psi = _np.zeros((self.nmodes, self.mmodes, self.nz, self.nx, self.ny), dtype=_np.complex128)
+#        for ii, zz in enumerate(self.zz):
+#            for nn in range(self.nmodes):
+#                for mm in range(self.mmodes):
+#                    psi[nn,mm,ii,:,:] = _np.sqrt(2**(0.5-nn)/(_np.sqrt(_np.pi)*self.wz[ii]*factorial(nn)))
+#                    psi[nn,mm,ii,:,:] *=H
+        raise NotImplementedError
+
+    herm = _np.polynomial.hermite
+    def HermPoly(coef, domain=None, window=None):
+        raise NotImplementedError
+        # pass
+
+#        _np.polynomial.hermite.Hermite
+#        These are the methods available in that class:
+#            __call__(arg)
+#            basis(deg[, domain, window]) 	Series basis polynomial of degree deg.
+#            cast(series[, domain, window]) 	Convert series to series of this class.
+#            convert([domain, kind, window]) 	Convert series to a different kind and/or domain and/or window.
+#            copy() 	Return a copy.
+#            cutdeg(deg) 	Truncate series to the given degree.
+#            degree() 	The degree of the series.
+#            deriv([m]) 	Differentiate.
+#            fit(x, y, deg[, domain, rcond, full, w, window]) 	Least squares fit to data.
+#            fromroots(roots[, domain, window]) 	Return series instance that has the specified roots.
+#            has_samecoef(other) 	Check if coefficients match.
+#            has_samedomain(other) 	Check if domains match.
+#            has_sametype(other) 	Check if types match.
+#            has_samewindow(other) 	Check if windows match.
+#            identity([domain, window]) 	Identity function.
+#            integ([m, k, lbnd]) 	Integrate.
+#            linspace([n, domain]) 	Return x, y values at equally spaced points in domain.
+#            mapparms() 	Return the mapping parameters.
+#            roots() 	Return the roots of the series polynomial.
+#            trim([tol]) 	Remove trailing coefficients
+#            truncate(size) 	Truncate series to length size.
+#
+    lagu = _np.polynomial.laguerre
+    def LauguerrePoly(coef, domain=None, window=None):
+        raise NotImplementedError
+
+
+class dichroic(qoptics_abcd):
+    """
+    Dichroic plate as a quasi-optical high-pass filter / mirror
+
+        A dichroic plate is essentially a plate with a dense hole pattern.
+          - Each hole is basically a fundamental circular waveguide
+              (transmiting higher-frequencies through the plate)
+
+          - The transmission efficiency of the plate is basically the ratio of
+            holes/solid that the incident wave samples
+
+          - The transmitted waves generate an interference pattern due to the
+            dense spacing of identical sources. Each having an Airy-function
+            like antenna-pattern.
+
+          - The transmitted wave-mode is dependent on the incident wave and
+            the hole pattern itself.
+           (An advanced design could be used as a quasi-optical mode-converter)
+
+          - wavelengths on the same order as the hole spacing are reflected,
+            but are also diffracted if the plate is not purely perpendicular
+
+          - The dense pattern of holes appears to be a smooth surface to
+            wavelengths that are much greater than the hole spacing, and these
+            frequencies are reflected.
+
+    """
+
+    # ====================================================================== #
     # ======================= Dichroic filters ============================= #
 
-#    def dichroic_plate(self, freq, diameter, spacing, thickness, th):
+    def example_fco135p1GHz(self, wd=None):
+        """
+        Example of a 135.1 GHz cut-off highpass filter
+            Material 1   - Free space
+            Material 2   - Material in contact with the metal plate
+            Material 3   - material filling the metal plate (guide holes)
+        """
+        if wd is None:
+            wd = _os.path.join('G://','Workshop','ECE','QMF','OP2','Dichroic Plate')
+        # end if
+        th = 45    # [deg], angle of incidence to dichroic plate (measured in free space, between ray and normal to plate surface)
+        l3 = 5e-3  # [m], plate thickness
+        D = 1.27e-3 # [m], diameter of guide holes, 135.1 GHz
+        S = 1.45e-3 #[m] spacing of guide holes
+
+        # frequency range to plot response
+        freq = 1e9*_np.linspace(100.0, 250.0, 250)
+
+        # Material 1 - free space
+        eps1, loss_tangent1 = self._mats('Vacuum', metal=False)
+
+        # Material 2 - Material in contact with the metal plate
+        # relative permeability of material in waveguide
+        eps2, loss_tangent = self._mats('Air', metal=False)
+
+        # Material 3 - Material filling the metal plate (guide holes)
+        # relative permeability / resistivity of cavity walls
+        Ltot = l3   # [m], total physical thickness of plate
+        mur, rho = self._mats('Brass', metal=True)
+
+    @staticmethod
+    def guide_cutoff_lower(D):
+        """
+        Designed cylindrical waveguide cutoff frequency (lower)
+
+        inputs
+            D - [m], diameter of waveguide
+        output
+            fco - [GHz], designed lower cut-off frequency
+        """
+        return 1e-9*1.841*cc/(_np.pi*D)
+
+    @staticmethod
+    def guide_cutoff_upper(S, A=1):
+        """
+        Designed cutoff frequency due to diffraction from the hole pattern (upper)
+
+        inputs
+            S - Hole spacing
+            A - Effective Guide array (A=1, default, for square guide array,
+                                   A=0.5*sqrt(3) for hexagonal guide array)
+        output
+            fco - [GHz], diffraction limited upper cut-off frequency
+        """
+        return 1e-9*cc/(S*A)
+
+    @staticmethod
+    def guide_wavelength(freq, epsr, D):
+        """
+        Guide wavelength in cylindrical waveguide
+        """
+        wavelength = cc/freq
+        wl = wavelength/_np.sqrt(epsr)
+
+        return wl/(1.0-(wl/(1.706*D))**2.0)
+
+
+    def plate(self, freq, diameter, spacing, thickness, th, shape='hex'):
+        """
+        A dichroic plate function
+        inputs:
+            diameter  - [m], diameter of guide holes (sets cut-off frequency)
+            spacing   - [m], spacing of guide holes (sets porosity)
+            thickness - [m], plate thickness (sets tunneling efficiency and should be multiple of guide wavelength)
+            th        - [deg], angle of incidence to the dichroic plate
+            (measured in free space, between ray and normal to plate surface)
+            shape     - [str],  "square" or "hexagonal" sets array effeiciency
+        outputs -
+
+        """
+        from scipy.special import jvp
+        wavelength = cc/freq
+        radius = 0.5*diameter
+
+        #       For radius>0.28*spacing   and spacing<0.57 * wavelength
+        if shape.lower().find('hex')>-1:
+            A = 0.5 * _np.sqrt(3.0)  # hexagonal guide array
+        elif shape.lower().find('sq')>-1:
+            A = 1   # square guide array
+        # end if
+
+        fc1 = 1e-9*1.841*cc/(_np.pi*2.0*radius)  # [GHz], designed lower cut-off frequency
+        fc2 = 1e-9*cc/(spacing*A)                # [GHz], diffraction limited upper cut-off frequency
+        # wlco = cc/(1e9*fc1)/_np.sqrt(eps3)
+
+        J1prime = jvp(v=1, z=4.0*_np.pi*radius/(_np.sqrt(3)*spacing), n=1)
+        A = 12.0 * _np.sqrt(_np.asarray(4.0/3.0 * (wavelength/spacing)**2.0 - 1.0, dtype=complex)) \
+            * (J1prime/(1.0-(4*_np.pi*radius/(1.841*_np.sqrt(3.0)*spacing))**2.0))**2.0
+        A -= 12.0/_np.sqrt(_np.asarray(4.0/3.0 * (wavelength/spacing)**2.0 - 1.0, dtype=complex)) \
+            * (J1prime/(4.0*_np.pi*radius/(_np.sqrt(3.0)*spacing)))**2.0
+
+        B = 0.33*(spacing/radius)**2.0 * _np.sqrt(_np.asarray((0.293*wavelength/radius)**2.0 - 1.0, dtype=complex) )
+
+        beta = (2.0*_np.pi/wavelength)*_np.sqrt(_np.asarray((0.293*wavelength/radius)**2.0 - 1.0, dtype=complex))
+
+        R2 = _np.zeros( (len(freq),), dtype=complex)
+        T2 = _np.zeros_like(R2)
+        for ii in range(len(freq)):
+
+            AA = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness)))
+            BB = 1.0/  (1.0 - 1j*(A[ii]+B[ii]*      coth(beta[ii]*thickness)))
+            # Reflection
+            R2[ii] = AA.copy() + BB.copy() - 1.0
+
+            # Transmission
+            T2[ii] = AA.copy() - BB.copy()
+
+            # R2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) + 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness))) - 1.0
+            # T2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) - 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness)))
+            # if self.verbose:    print(_np.abs(R2[ii]), _np.abs(1-T2[ii]))
+
+        # For oblique incidence, there is a correction here:
+        porosity = _np.pi*(2.0*radius)**2.0 / (2.0*_np.sqrt(3)*spacing**2.0)
+        T2perp = T2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-porosity))
+        T2parr = T2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-porosity))
+
+        # Does it work the same for reflection?
+        # R2_perp = R2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-porosity))
+        # R2_parr = R2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-porosity))
+
+        phperp = _np.arctan(_np.imag(T2perp) /_np.real(T2perp))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
+        phparr = _np.arctan(_np.imag(T2parr) /_np.real(T2parr))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
+
+        T2perp = _np.abs(T2perp)
+        T2parr = _np.abs(T2parr)
+
+#        R2perp = _np.abs(R2perp)
+#        R2parr = _np.abs(R2parr)
+
+        R2perp = 1.0-T2perp
+        R2parr = 1.0-T2parr
+
+        if self.verbose:
+            print("Dichroic plate characteristics: ")
+            print("Hexagonal hole pattern: diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.2f mm"%(1e3*2.0*radius, 1e3*spacing, 1e3*thickness))
+            print("filter cut-offs: %3.1f<f<%3.1f GHz"%(fc1, fc2))
+        # end if
+
+        return T2perp, T2parr, porosity, fc1, fc2
+
+    def response(self, freq, diameter, spacing, thickness, th, plotit=True, wd=None):
+         """
+
+         """
+
+         if freq is None and hasattr(self, 'freq'):
+             freq=self.freq
+         elif freq is None:
+             freq = 1e9*_np.linspace(100.0, 250.0, 250)
+         # endif
+
+         T2perp, T2parr, por, fc1, fc2 = self.dichroic_plate(freq, diameter, spacing, thickness, th)
+
+         T2_perp_log = 20*_np.log10(T2perp)
+         T2_parr_log = 20*_np.log10(T2parr)
+         #por_log = 10*_np.log10(porosity)
+
+         # ======================================= #
+
+         delimiter = '\n'
+         hdr = "Dichroic plate characteristics: Filled with %s"%(matname,) + delimiter
+         hdr += "Hexagonal hole pattern (%i holes): diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(ncircles, 1e3*D, 1e3*S, 1e3*l3) + delimiter
+         hdr += "filter cut-offs: %3.1f<f<%3.1f GHz"%(fco, fcd) + delimiter
+         hdr += "Power transmission (perpendicular): %3.1f dB@%3.0f GHz"%(T2_perp_140, 140) + delimiter
+         hdr += "Power transmission (parallel): %3.1f dB@%3.0f GHz"%(T2_parr_140, 140) + delimiter
+         hdr += "Porosity limit (%0.2f): %3.1f dB"%(porosity, por_log) + delimiter
+
+         print(hdr)
+
+         filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
+         _np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
+
+         filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
+         _np.savetxt(filnam, (freq,T2_parr,T2_perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
+
+
+
+
+         if plotit:
+             # ======================================= #
+
+             hfig = _plt.figure()
+
+             _plt.plot(1e-9*freq, T2_perp_log, '-')
+             _plt.plot(1e-9*freq, T2_parr_log, '--')
+             xlims = _plt.xlim()
+             xlims = (xlims[0],210)
+             ylims = _plt.ylim()
+             #ylims = (ylims[0], 0.0)
+             ylims = (-30, 0.0)
+             _plt.xlim(xlims)
+             _plt.ylim(ylims)
+
+             _plt.xlabel('frequency [GHz]')
+             _plt.ylabel(r'|T$^2$| [dB]')
+             _plt.title(r'Power Transmission Coefficient: f$_{c,o}$<%3.1f, f$_{c,d}$<%3.1f GHz'%(fco,fcd) )
+             _plt.axvline(x=fco, linestyle='--', color='k')
+             _plt.axvline(x=fcd, linestyle='--', color='k')
+             _plt.axhline(y=por_log, linestyle='--', color='k')
+
+             _plt.text(x=fco+5, y=-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm, \n thickness=%2.1f mm'%(1e3*D, 1e3*S, 1e3*l3))
+
+
+
+         if wd is not None and plotit and _os.path.exists(wd):
+             # wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
+             hfig.savefig(_os.path.join(wd,'DichroicNotch_%3.1fGHz_%3.1fGHz.png'%(fco[0],fco[1])), dpi=200, transparent=True)
+
+
 #
-#        wavelength = cc/freq
-#        radius = 0.5*diameter
-#
-#        #       For radius>0.28*spacing   and spacing<0.57 * wavelength
-#        A = 0.5 * _np.sqrt(3.0)  # hexagonal guide array
-#        fc1 = 1e-9*1.841*cc/(_np.pi*2.0*radius)  # [GHz], designed lower cut-off frequency
-#        fc2 = 1e-9*cc/(spacing*A)             # [GHz], diffraction limited upper cut-off frequency
-#        # wlco = cc/(1e9*fc1)/_np.sqrt(eps3)
-#
-#        J1prime = _scipy.special.jvp(v=1, z=4.0*_np.pi*radius/(_np.sqrt(3)*spacing), n=1)
-#        A = 12.0 * _np.sqrt(_np.asarray(4.0/3.0 * (wavelength/spacing)**2.0 - 1.0, dtype=complex)) \
-#            * (J1prime/(1.0-(4*_np.pi*radius/(1.841*_np.sqrt(3.0)*spacing))**2.0))**2.0
-#        A -= 12.0/_np.sqrt(_np.asarray(4.0/3.0 * (wavelength/spacing)**2.0 - 1.0, dtype=complex)) \
-#            * (J1prime/(4.0*_np.pi*radius/(_np.sqrt(3.0)*spacing)))**2.0
-#
-#        B = 0.33*(spacing/radius)**2.0 * _np.sqrt(_np.asarray((0.293*wavelength/radius)**2.0 - 1.0, dtype=complex) )
-#
-#        beta = (2.0*_np.pi/wavelength)*_np.sqrt(_np.asarray((0.293*wavelength/radius)**2.0 - 1.0, dtype=complex))
-#
-#        R2 = _np.zeros( (len(freq),), dtype=complex)
-#        T2 = _np.zeros_like(R2)
-#        for ii in range(len(freq)):
-#
-#            AA = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness)))
-#            BB = 1.0/  (1.0 - 1j*(A[ii]+B[ii]*      coth(beta[ii]*thickness)))
-#            # Reflection
-#            R2[ii] = AA.copy() + BB.copy() - 1.0
-#
-#            # Transmission
-#            T2[ii] = AA.copy() - BB.copy()
-#
-#            # R2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) + 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness))) - 1.0
-#            # T2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) - 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness)))
-#            # if self.verbose:    print(_np.abs(R2[ii]), _np.abs(1-T2[ii]))
-#
-#        # For oblique incidence, there is a correction here:
-#        porosity = _np.pi*(2.0*radius)**2.0 / (2.0*_np.sqrt(3)*spacing**2.0)
-#        T2perp = T2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-porosity))
-#        T2parr = T2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-porosity))
-#
-#        # Does it work the same for reflection?
-#        # R2_perp = R2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-porosity))
-#        # R2_parr = R2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-porosity))
-#
-#        phperp = _np.arctan(_np.imag(T2perp) /_np.real(T2perp))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
-#        phparr = _np.arctan(_np.imag(T2parr) /_np.real(T2parr))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
-#
-#        T2perp = _np.abs(T2perp)
-#        T2parr = _np.abs(T2parr)
-#
-#        R2perp = 1.0-T2perp
-#        R2parr = 1.0-T2parr
-#
-#        if self.verbose:
-#            print("Dichroic plate characteristics: ")
-#            print("Hexagonal hole pattern: diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.2f mm"%(1e3*2.0*radius, 1e3*spacing, 1e3*thickness))
-#            print("filter cut-offs: %3.1f<f<%3.1f GHz"%(fc1, fc2))
-#
-#        return T2perp, T2parr, porosity, fc1, fc2
-#
-#    def dichroic_notch_response(self, freq=None, diameter=1.6e-3, spacing=2e-3, thickness=5e-3, th=45, plotit=True, wd=None):
+#    def notch_response(self, freq=None, diameter=1.6e-3, spacing=2e-3, thickness=5e-3, th=45, plotit=True, wd=None):
 #        if freq is None and hasattr(self, 'freq'): freq=self.freq # endif
 #
 #        T2perp, T2parr, por, fc1, fc2 = self.dichroic_plate(freq, diameter, spacing, thickness, th)
@@ -969,75 +1249,34 @@ class qoptics(qoptics_1d):
 #            # wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
 #            hfig.savefig(_os.path.join(wd,'DichroicNotch_%3.1fGHz_%3.1fGHz.png'%(fco[0],fco[1])), dpi=200, transparent=True)
 
-    # def dichroic_plate_response(self, freq=None, diameter=1.6e-3, spacing=2e-3, thickness=5e-3, th=45, plotit=True, wd=None):
-    #     if freq is None and hasattr(self, 'freq'):
-    #         freq=self.freq
-    #     elif freq is None:
-    #         freq = 1e9*_np.linspace(100.0, 250.0, 250)
-    #     # endif
+    @staticmethod
+    def hexagon_generator(edge_length, offset):
+      """Generator for coordinates in a hexagon."""
+      npts = 6
+      x = _np.zeros((npts,), dtype=float)
+      y = _np.zeros((npts,), dtype=float)
+      angle = _np.linspace(30, 390, 7)
+      for ii in range(npts):
+        x[ii] = offset[0] + edge_length*_np.cos(angle[ii]*_np.pi/180.0)
+        y[ii] = offset[1] + edge_length*_np.sin(angle[ii]*_np.pi/180.0)
+      return x, y
 
-    #     T2perp, T2parr, por, fc1, fc2 = self.dichroic_plate(freq, diameter, spacing, thickness, th)
+    @staticmethod
+    def closest_approach(shape1, shape2):
+        minDist = 100
+        n1 = len(shape1[:,0])
+        n2 = len(shape2[:,0])
+        for ii in range(n1):
+            for jj in range(n2):
+                dist = _np.sqrt( (shape1[ii,0]-shape2[jj,0])**2.0 + (shape1[ii,1]-shape2[jj,1])**2.0 )
+                minDist = min(minDist, dist)
+            # end for
+        # end for
+        return minDist
 
-    #     T2_perp_log = 20*_np.log10(T2perp)
-    #     T2_parr_log = 20*_np.log10(T2parr)
-
-
-    #     # ======================================= #
-
-    #     delimiter = '\n'
-    #     hdr = "Dichroic plate characteristics: Filled with %s"%(matname,) + delimiter
-    #     hdr += "Hexagonal hole pattern (%i holes): diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(ncircles, 1e3*D, 1e3*S, 1e3*l3) + delimiter
-    #     hdr += "filter cut-offs: %3.1f<f<%3.1f GHz"%(fco, fcd) + delimiter
-    #     hdr += "Power transmission (perpendicular): %3.1f dB@%3.0f GHz"%(T2_perp_140, 140) + delimiter
-    #     hdr += "Power transmission (parallel): %3.1f dB@%3.0f GHz"%(T2_parr_140, 140) + delimiter
-    #     hdr += "Porosity limit (%0.2f): %3.1f dB"%(porosity, por_log) + delimiter
-
-    #     print(hdr)
-
-    #     filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
-    #     _np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
-
-    #     filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
-    #     _np.savetxt(filnam, (freq,T2_parr,T2_perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
+# end class special
 
 
-
-
-    #     if plotit:
-    #         # ======================================= #
-
-    #         hfig = _plt.figure()
-
-    #         _plt.plot(1e-9*freq, T2_perp_log, '-')
-    #         _plt.plot(1e-9*freq, T2_parr_log, '--')
-    #         xlims = _plt.xlim()
-    #         xlims = (xlims[0],210)
-    #         ylims = _plt.ylim()
-    #         #ylims = (ylims[0], 0.0)
-    #         ylims = (-30, 0.0)
-    #         _plt.xlim(xlims)
-    #         _plt.ylim(ylims)
-
-    #         _plt.xlabel('frequency [GHz]')
-    #         _plt.ylabel(r'|T$^2$| [dB]')
-    #         _plt.title(r'Power Transmission Coefficient: f$_{c,o}$<%3.1f, f$_{c,d}$<%3.1f GHz'%(fco,fcd) )
-    #         _plt.axvline(x=fco, linestyle='--', color='k')
-    #         _plt.axvline(x=fcd, linestyle='--', color='k')
-    #         _plt.axhline(y=por_log, linestyle='--', color='k')
-
-    #         _plt.text(x=fco+5, y=-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm, \n thickness=%2.1f mm'%(1e3*D, 1e3*S, 1e3*l3))
-
-
-
-    #     if wd is not None and plotit and _os.path.exists(wd):
-    #         # wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
-    #         hfig.savefig(_os.path.join(wd,'DichroicNotch_%3.1fGHz_%3.1fGHz.png'%(fco[0],fco[1])), dpi=200, transparent=True)
-
-
-# end class quasioptics
-
-#def coth(val):
-#    return 1.0/cmath.tanh(val)
 
 
 
@@ -1096,6 +1335,115 @@ def Basic_antenna_thinlens_plot(freq, w0x, w0y, z0x, z0y, d1=0.1, flen=0.5):
     tst_y.plot(_ax1=_ax1, _ax2=_ax2)
 # end def
 
+def qme_telescope_design():
+    """
+    """
+    freq = 140e9
+
+    # axis along which to determine data: antenna position
+    zantenna = 0.0
+    zz = zantenna + _np.linspace(0, 3.00, num=500)
+
+    tst = qoptics(freq=freq, wo=3.2e-3, zz=zz)
+
+    tst.add_element(tst.thinlens(171.37e-3), 175e-3, '1 Ellipsoidal\nMirror')
+    tst.add_element(tst.thinlens(1078.6e-3), 1250e-3, '2 Plane\nMirror')
+    tst.add_element(tst.thinlens(1078.6e-3), 1079e-3, '3 Ellipsoidal\nMirror')
+    tst.add_element(tst.thinlens(1078.6e-3), 1250e-3, '4 Plane\nMirror')
+
+    tst.BeamPropagation()
+    _ax1, _ax2 = tst.plot()
+# end def
+
+
+def qme_telescope_op11():
+    """
+    """
+    freqs, w0, z0, hom, purity = __qme_op11_antenna__()
+
+    freq = 140e9
+    wavelength = cc/freq
+#    w0x = _np.interp(freq, freqs, w0[0,:]) # 4.31e-3
+    w0y = _np.interp(freq, freqs, w0[1,:]) # 3.44e-3
+#    z0x = _np.interp(freq, freqs, z0[0,:]) # 147.35e-3    # waist position from aperture
+    z0y = _np.interp(freq, freqs, z0[1,:]) # 161.42e-3
+
+    # axis along which to determine data: antenna position
+#    zantenna = -z0x if _np.abs(-z0x)>_np.abs(-z0y) else -z0y
+#    zantenna = 0.0
+    zantenna = -z0y
+    zz = zantenna + _np.linspace(0, 3.00, num=500)
+
+    tst = qoptics(freq=freq, wo=w0y, zz=zz)
+
+    # d23 = f1 + f2 = 1250e-3î
+    d1 = 175e-3;        f1 = 171.4e-3;  th1 = 45.0    # [deg], R1=176.34mm, R2=6080.8mm; a=3.128.6m, b=0.73222 m      # analysis:ignore
+    d2 = d1 + 180e-3;   f2 = 1e8;       th2 = 45.0    # [deg], planar mirror                                   # analysis:ignore
+    d3 = d2 + 1071e-3;  f3 = 1078.6e-3; th3 = 90.0-63.55  # ellipsoidal mirror,  # analysis:ignore
+    d4 = d3 + 189.3e-3; f4 = 1e8;       th4 = 13.16   # [deg]                       # analysis:ignore
+
+    tst.add_element(tst.thinlens(f1), d1, '1 Ellipsoidal\nMirror')
+    tst.add_element(tst.thinlens(f2), d2, '2 Plane\nMirror')
+    tst.add_element(tst.thinlens(f3), d3, '3 Ellipsoidal\nMirror')
+    tst.add_element(tst.thinlens(f4), d4, '4 Plane\nMirror')
+
+#    d1 = 175e-3; f1 = 171.37e-3; th1=45  # [deg], R1=176.34mm, R2=6080.8mm; a=3.128.6m, b=0.73222 m      # analysis:ignore
+#    d2 = d1+189e-3;  th2 = 45            # [deg], planar mirror                                   # analysis:ignore
+#    d3 = d2 + 1250e-3; f3=1078.6e-3; th3 = 37.1  # 90-52.9 degrees from horizonal, ellipsoidal mirror,  # analysis:ignore
+#    d4 = d3 + 208e-3;  th4 = 13.16      # [deg]                       # analysis:ignore
+
+    tst.rays = []
+    angrange = wavelength/(_np.pi*w0y)*_np.linspace(0, 1, num=5, endpoint=True)
+    for ii in range(5):
+#        tst.rays.append([ii*0.001, 0.0])
+        tst.rays.append([0.0, angrange[ii]])
+    # end for
+    tst.BeamPropagation()
+    _ax1, _ax2 = tst.plot()
+    tst.plotrays()
+# end def
+
+def qme_telescope_op12():
+    """
+    """
+    freqs, w0, z0, hom, purity = __qme_op12_antenna__()
+
+    freq = 140e9
+    wavelength = cc/freq
+#    w0x = _np.interp(freq, freqs, w0[0,:]) # 4.31e-3
+    w0y = _np.interp(freq, freqs, w0[1,:]) # 3.44e-3
+#    z0x = _np.interp(freq, freqs, z0[0,:]) # 147.35e-3    # waist position from aperture
+    z0y = _np.interp(freq, freqs, z0[1,:]) # 161.42e-3
+
+    # axis along which to determine data: antenna position
+#    zantenna = -z0x if _np.abs(-z0x)>_np.abs(-z0y) else -z0y
+    zantenna = -z0y
+    zz = zantenna + _np.linspace(0, 3.00, num=500)
+
+    tst = qoptics(freq=freq, wo=w0y, zz=zz)
+
+    # d23 = f1 + f2 = 1250e-3î
+    # 175e-3 - 53e-3 = 122e-3 to aperture of antenna
+    d1 = 175e-3-53e-3;  f1 = 171.4e-3;  th1 = 45.0    # [deg], R1=176.34mm, R2=6080.8mm; a=3.128.6m, b=0.73222 m      # analysis:ignore
+    d2 = d1 + 180e-3;   f2 = 1e8;       th2 = 45.0    # [deg], planar mirror                                   # analysis:ignore
+    d3 = d2 + 1071e-3;  f3 = 1078.6e-3; th3 = 90.0-63.55  # ellipsoidal mirror,  # analysis:ignore
+    d4 = d3 + 189.3e-3; f4 = 1e8;       th4 = 13.16   # [deg]                       # analysis:ignore
+
+    tst.add_element(tst.thinlens(f1), d1, '1 Ellipsoidal\nMirror')
+    tst.add_element(tst.thinlens(f2), d2, '2 Plane\nMirror')
+    tst.add_element(tst.thinlens(f3), d3, '3 Ellipsoidal\nMirror')
+    tst.add_element(tst.thinlens(f4), d4, '4 Plane\nMirror')
+
+    tst.rays = []
+    angrange = wavelength/(_np.pi*w0y)*_np.linspace(0, 1, num=5, endpoint=True)
+    for ii in range(5):
+#        tst.rays.append([ii*0.001, 0.0])
+        tst.rays.append([0.0, angrange[ii]])
+    # end for
+    tst.BeamPropagation()
+    _ax1, _ax2 = tst.plot()
+    tst.plotrays()
+# end def
 
 def __Plaum_20200212__():
     freqs, wx, wy, zx, zy, hom, purity = [[] for _ in range(7)]
@@ -1154,59 +1502,60 @@ def __qme_op12_antenna__():
     """
     freqs, wx, wy, zx, zy, hom, purity = [[] for _ in range(7)]
 
+    offset = 105e-3
     freqs.append(50e9)
     wy.append(7.41e-3)
     wx.append(6.25e-3)
-    zy.append(0.21051)
-    zx.append(0.23370)
+    zy.append(offset-0.21051)
+    zx.append(offset-0.23370)
     hom.append(0.87e-2)
     purity.append(0.9913)
 
     freqs.append(62e9)
     wy.append(6.41e-3)
     wx.append(5.47e-3)
-    zy.append(0.14214)
-    zx.append(0.15406)
+    zy.append(offset-0.14214)
+    zx.append(offset-0.15406)
     hom.append(1.10e-2)
     purity.append(0.9890)
 
     freqs.append(90e9)
     wy.append(4.94e-3)
     wx.append(3.96e-3)
-    zy.append(0.15048)
-    zx.append(0.15848)
+    zy.append(offset-0.15048)
+    zx.append(offset-0.15848)
     hom.append(1.43e-2)
     purity.append(0.9857)
 
     freqs.append(113e9)
     wy.append(4.23e-3)
     wx.append(3.40e-3)
-    zy.append(0.15114)
-    zx.append(0.15719)
+    zy.append(offset-0.15114)
+    zx.append(offset-0.15719)
     hom.append(2.56e-2)
     purity.append(0.9744)
 
     freqs.append(140e9)
     wy.append(4.31e-3)
     wx.append(3.44e-3)
-    zy.append(0.14735)
-    zx.append(0.16142)
+    zy.append(offset-0.14735)
+    zx.append(offset-0.16142)
     hom.append(1.55e-2)
     purity.append(0.9845)
 
     freqs.append(170e9)
     wy.append(3.23e-3)
     wx.append(2.85e-3)
-    zy.append(0.15475)
-    zx.append(0.15046)
+    zy.append(offset-0.15475)
+    zx.append(offset-0.15046)
     hom.append(3.18e-2)
     purity.append(0.9682)
 
     freqs.append(193e9)
     wy.append(2.48e-3)
     wx.append(2.27e-3)
-    zy.append(0.15053)
-    zx.append(0.15944)
+    zy.append(offset-0.15053)
+    zx.append(offset-0.15944)
     hom.append(2.28e-2)
     purity.append(0.9771)
 
@@ -1302,7 +1651,7 @@ def abcd_prop_test():
 #    tst_y.BeamPropagation()
 #    _ax1, _ax2 = tst_y.plot()
 
-    # flatinterface
+    # planarinterface
     eps_r, loss_tangent = tst_y._mats(material='mica')
     tst_y.add_element(tst_y.refraction_thickplate(1.0, _np.sqrt(eps_r), 2.0e-3), 0.55, 'Mica Window')
 
@@ -1593,11 +1942,14 @@ def abcd_prop_test():
 
 
 if __name__=="__main__":
-#    qme_op11_antenna()
-#    qme_op12_antenna()
-#    Plaum_20200212()
+    qme_op11_antenna()
+    qme_op12_antenna()
+    Plaum_20200212()
 
     qo = abcd_prop_test()
+
+    qme_telescope_op11()
+    qme_telescope_op12()
 # end if
 
 
