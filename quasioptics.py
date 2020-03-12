@@ -46,6 +46,11 @@ class qoptics_params(Struct):
         return self._qz
     @qz.setter
     def qz(self, value):
+        """
+        q = z + i*zr = z + i * pi*N*wo^2/lambda0
+            or
+        1/qz = q/Rz - i*lambda0/(pi*Nref*wz^2)
+        """
         # value = _np.asarray(value)
         self._qz = value
         self._Rz = _np.real(1.0/self._qz)
@@ -265,9 +270,9 @@ class qoptics_params(Struct):
 
     # ======= #
 
-    @staticmethod
-    def coth(val):
-        return 1.0/cmath.tanh(val)
+#    @staticmethod
+#    def coth(val):
+#        return 1.0/cmath.tanh(val)
 
     # ====================================================================== #
     # ======================= Common Materials ============================= #
@@ -433,7 +438,7 @@ class qoptics_abcd(qoptics_params):
         """
         return self.ABCD(1.0, 0.0, -1.0/flen, 1.0)
 
-    def reflection_flatmirror(self):
+    def planarmirror(self):
         """
         Ray transfer matrice for reflection from a flat mirror
 
@@ -442,7 +447,7 @@ class qoptics_abcd(qoptics_params):
         """
         return self.ABCD(1.0, 0.0, 0.0, 1.0)
 
-    def reflection_curvedmirror(self, R, th, plane='horizontal'):
+    def sphericalmirror(self, R, th, plane='horizontal'):
         """
         Ray transfer matrice for reflection from a curved (spherical) mirror
             (valid in the paraxial approximation)
@@ -570,7 +575,8 @@ class qoptics_abcd(qoptics_params):
         outputs
             flen - focal length of the thin lens
         """
-        inverse_flen = (n-1.0)*(1.0/r2 - 1.0/r1)  # flen = R1*R2/(R2+R1) = 1/(1/R1+1/R2)
+        inverse_flen = 1.0/r2 + 1.0/r1  # flen = R1*R2/(R2+R1) = 1/(1/R1+1/R2)
+#        inverse_flen *= n-1.0
         return 1.0/inverse_flen
 
     def thicklens_focallength(self, r1, r2, n, t):
@@ -593,12 +599,202 @@ class qoptics_abcd(qoptics_params):
         foc = self.thinlens_focallength(r1, r2)
         return self.thinlens(foc)
 
+    def rectangular_horn(self, freq, distance, R_A, A_h, B_h, awg):
+        """
+        inputs
+            freq
+            distance - [m], requested position
+            R_A      - [m], Dist. from Horn aperture to WG apert.
+            A_h      - [m], E-plane aperture dimension
+            B_h      - [m], H-plane aperture dimension
+            awg      - [m], waveguide aperture in the E-field direction
+        outputs
+            wo       - [m,m], output beamwaist at the requested position (E-plane / H-plane)
+            ro       - [m,m], output radius of curvature at the requested position (E-plane / H-plane)
+
+        """
+        wavelength = cc/freq
+        R_a = R_A*A_h/(A_h-awg)      #The length to the throat of the horn
+        L_a = _np.sqrt( R_a^2 + 0.25*A_h^2.0 ) #The horn edge length in the E-field direction
+        L_b = _np.sqrt( R_a^2 + 0.25*B_h^2.0 ) # the horn edge length in the H-field direction
+
+#        alpha = _np.arctan(A_h/(2*R_a))     #The Horn flare angles
+#        beta  = _np.arctan(B_h/(2*R_a))
+
+        # Optimum coupling to the horn occurs for a beam waist of diameter:
+        w_h = 0.35*(A_h/2)   # Beam radius at the horn aperture for best coupling
+        w_e = 0.50*(B_h/2)   # pg 163, and 165 or Table 7.1 pg 169
+
+        # The beam waist within the horn antenna is then (pg 167, eqn 7.3a):
+        woh = w_h/_np.sqrt(1+( (_np.pi*w_h**2)/(wavelength*L_a))**2)
+        woe = w_e/_np.sqrt(1+( (_np.pi*w_e**2)/(wavelength*L_b))**2)
+        wo_horn = [woe, woh]
+
+        # The Rayleigh range, or confocal parameter (pg 22, eqn 2.41)
+        z_rayH = _np.pi*woh**2/wavelength;    qo_H = 1j*z_rayH #beam parameter at waist
+        z_rayE = _np.pi*woe**2/wavelength;    qo_E = 1j*z_rayE
+#        qo_horn = [qo_E,qo_H]
+
+        # The waist of the beam occurs offset from the horn aperture by:
+        zh = L_a/( 1 + ( L_a/z_rayH)**2 ) # loc. of beam radius w/in apert.
+        ze = L_b/( 1 + ( L_b/z_rayE)**2 ) # (pg 167 eqn 7.30b)
+        zz_horn = [ze, zh]
+
+        qoh = qoptics_abcd();   qoe = qoptics_abcd()
+        qoh.qz = qoh.propagate_beamparameter(qoh.freespace(distance+zh), qo_H)
+        qoe.qz = qoe.propagate_beamparameter(qoe.freespace(distance+ze), qo_E)
+
+        return [qoe.wz, qoh.wz], [qoe.Rz, qoh.Rz], wo_horn, zz_horn
+
+
+    def corrugated_horn(self, freq, distance, DH, LH):
+        """
+        inputs
+            freq
+            distance - [m], requested position
+            DH       - [m], diameter of the corrugated horn (aperture)
+            LH       - [m], length of the corrugated horn
+        outputs
+            wo       - [m], output beamwaist at the requested position
+            ro       - [m], output radius of curvature at the requested position
+        """
+        wi = 0.32*DH                            # beam radius at the horn aperture
+        ri = _np.sqrt(LH**2.0 + 0.25*DH**2.0)   # radius of curvature at the horn aperture
+
+        wavelength = cc/freq
+        wo = wi*_np.sqrt((1.0+distance/ri)**2.0 (wavelength*distance/(_np.pi*wi**2.0))**2.0)
+        ro = distance/( 1.0 - (1.0+distance/ri)/( wo/wi )**2.0 )
+        return wo, ro
+
     def two_thin_lens(self, f1, d, f2):
         return self.ABCD(-f2/f1, f1+f2, 0.0, -f1/f2)
 
+    @staticmethod
+    def elliptic_mirror_design(freq, win, wout, d1, d2, grazing_angle=45, **kwargs):
+        """
 
-    # Reference 3:  Chen
-    # Circular openings with Equilateral triangular lattice
+        - Radii of curvature match the beams at input and output
+
+        The equation of an ellipse in polar form from one of the focii to any
+        point on the ellipse is
+            r(theta) = amaj*(1-ecc**2.0)/( 1.0 +- ecc*cos(theta) )
+
+        Note - ellipsoidal mirrors can be used to prevent/correct astigmastism
+            to do that you have to know the beam radii in each plane
+
+            example//
+
+            # E-plane first
+            f_e, (a_e, b_e), elength = elliptic_mirror_design(freq, wein, wout, d1, d2, grazing_angle, trunclevel)
+
+            # Now calculate H-plane parameters to have identical output beam radii at d2
+            f_h, (a_h, b_h), hlength = elliptic_mirror_design(freq, whin, wout, d1, d2, grazing_angle, trunclevel)
+
+
+        """
+        plotit = kwargs.setdefault('plotit', True)
+        trunclevel = kwargs.setdefault('trunclevel', 5.0)
+        plotit = kwargs.setdefault('plotit', True)
+
+        inc_angle = _np.pi-grazing_angle
+
+        wavelength = cc/freq
+        R1 = d1*( 1.0+(_np.pi*win**2.0 /(wavelength*d1))**2.0 )
+        R2 = d2*( 1.0+(_np.pi*wout**2.0/(wavelength*d2))**2.0 )
+
+        # required dimension of the mirror to meet the truncation level
+        qo = qoptics(freq=freq, wo=win, zz=_np.atleast_1d(d1))
+        qo.RayleighRange()
+        qo.ComplexBeamParameter()
+        wproj = trunclevel*qo.wz/_np.sin(0.5*_np.pi-inc_angle)
+
+        foc = qo.thinlens_focallength(R1, R2)
+        M = R2/R1    # optical magnification
+
+        #  amaj = the arithmetic mean of the distance between a point on the ellipse and both focii
+        amaj = 0.5*(R1 + R2)
+
+        # use eccentricity to calculate the ellipse parameters
+        ecc = _np.sqrt(R1**2.0+R2**2.0-2.0*R1*R2*_np.cos(_np.pi-2.0*grazing_angle))/(2.0*amaj)
+        bmin1 = amaj*_np.sqrt(1.0-ecc**2.0)
+
+#        # this is analytically identical to the combination of the above:
+#        bmin2 = _np.sqrt(0.5*R1*R2*(1.0+_np.cos(_np.pi-2.0*grazing_angle)))
+#
+#        print("bmin1 %6.4f, bmin2 %6.4f"%(bmin1,bmin2))
+
+        print('foc %6.4f, R1 %6.4f, R2 %6.4f, d1 %6.4f, d2 %6.4f, amaj %6.4f, bmin %6.4f, ecc %6.4f'%(foc, R1, R2, d1, d2, amaj, bmin1, ecc))
+        if plotit:
+            qo.elliptic_mirror_design_plot(R1, R2, amaj, bmin1, ecc, **kwargs)
+        # end if
+        return foc, M, (amaj, bmin1), wproj
+
+    @staticmethod
+    def rotated_ellipse(amaj, ecc, theta, phi):
+#        return amaj*(1.0-ecc**2.0)/(1.0+ecc*_np.cos(theta - phi))
+        return amaj*(1.0-ecc**2.0)/(1.0-ecc*_np.cos(theta - phi))
+
+    @staticmethod
+    def mirangle_on_ellipse(amaj, ecc, R1, phi):
+#        return _np.arccos((amaj*(1.0-ecc**2.0)/R1-1)/ecc) + phi
+        return _np.arccos((1.0-amaj*(1.0-ecc**2.0)/R1)/ecc) + phi
+
+    @staticmethod
+    def elliptic_mirror_design_plot(R1, R2, amaj, bmin, ecc, **kwargs):
+
+        _ax1 = kwargs.setdefault('_ax1', None)
+        phi = kwargs.setdefault('phi', 0.0)
+
+        import matplotlib.pyplot as _plt
+        if _ax1 is None:
+            hfig1, _ax1 = _plt.subplots(1, 1, sharex=True, squeeze=True)
+        # end if
+
+        qo = qoptics_abcd()
+
+        # ellipse properties:
+        angle = _np.linspace(0, 2*_np.pi, 180)
+        c = ecc*amaj
+        theta = qo.mirangle_on_ellipse(amaj, ecc, R1, phi)
+
+        # Mirror position on ellipse
+        rmir = qo.rotated_ellipse(amaj, ecc, theta, phi)
+#        rmir = qo.rotated_ellipse(bmin, ecc, theta, phi)
+
+        pmir = [rmir*_np.cos(theta), rmir*_np.sin(theta)]
+
+        # ================ #
+
+        # rotated ellipse with zero at origin focus:
+        relli = qo.rotated_ellipse(amaj, ecc, angle, phi)
+#        relli = qo.rotated_ellipse(bmin, ecc, angle, phi)
+        elli = _np.vstack((relli*_np.cos(angle), relli*_np.sin(angle))).T
+
+        # ================ #
+
+        # origin and target focus:
+        _ax1.plot([0, 2*c*_np.cos(phi)], [0, 2*c*_np.sin(phi)], 'ko')
+        _ax1.plot([0, 2*c*_np.cos(phi)], [0, 2*c*_np.sin(phi)], 'k--')
+
+        # rotated ellipse:
+        _ax1.plot(elli[:,0], elli[:,1], 'k--')  # ellipse
+
+        # plot mirror position on ellipse
+        _ax1.plot(pmir[0], pmir[1], 'ko')
+
+        _ax1.plot([0, R1*_np.cos(theta)], [0, R1*_np.sin(theta)], 'r-')
+#        _ax1.plot([0, R1*_np.cos(theta+phi)], [0, R1*_np.sin(theta+phi)], 'r-')
+        _ax1.plot([pmir[0], 2*c*_np.cos(phi)], [pmir[1], 2*c*_np.sin(phi)], 'r-')
+#        _ax1.plot([pmir[0], pmir[0]+R2*_np.cos()], [pmir[1], pmir[1]+R2*_np.sin()], 'r-')
+
+        _ax1.set_aspect('equal', 'box')
+#        _min = 1.1*_np.min(_np.min(elli))
+#        _max = 1.1*_np.max(_np.max(elli))
+#        _ax1.axhline(xmin=_min, xmax=_max, y=0.0, linestyle='-', color='k')
+#        _ax1.axvline(ymin=_min, ymax=_max, x=0.0, linestyle='-', color='k')
+#        _ax1.set_xlim((_min, _max))
+#        _ax1.set_ylim((_min, _max))
+        # end if
 
 
     # ====================================================================== #
@@ -674,11 +870,24 @@ class qoptics(qoptics_abcd):
         self._lbls.append(lbl)
     # end def
 
+#    def add_element_params(self, **kwargs):
+#
+#        if 'incangle' in kwargs and not hasattr(self, '_incangle'):
+#            self._incangle = []
+#        # end if
+#
+#        if 'incangle' in kwargs:
+#            self._incangle.append(incangle)
+#        # end if
+#    # end def
+
     def reset_elements(self):
         delattr(self, '_ABCD')
         delattr(self, '_zins')
         delattr(self, '_lbl')
         self.nelements = 0
+
+        if hasattr(self, '_incangle'): delattr(self, '_incangle') # end if
     # end def
 
     def BeamPropagation(self):
@@ -961,6 +1170,56 @@ class qoptics(qoptics_abcd):
     def LauguerrePoly(coef, domain=None, window=None):
         raise NotImplementedError
 
+class qoptics2d(qoptics):
+
+    def add_element(self, coords, style='reflector', **kwargs):
+        """
+        add each element by spatial coordinate
+        inputs:
+            coords
+            style  - [s], 'reflector', 'splitter'
+
+        """
+        pass
+    # end def
+
+    def determine_paths(self):
+        """
+        calculate the unique paths
+        """
+        self.npaths = 2*self.ncombiner+self.nsplitter+1
+
+#        for coord in coords:
+
+        # check type of each element along the ray
+        #   - track phase along each path independently (phase purposes)
+        #   - if reflector, continue on this path
+        #   - if splitter: copy path up to this point, then finish current path
+        #       (for loop after copying)
+        #   - check if any paths overlap
+        #        where paths overlap combine beams
+        #
+        # combining beams:
+        #      for two beams, there is an approximation
+        #           use a weighted sum of their beam parametrs
+        #           - 1/qe =  1.0/(|a1|+|a2|) (|a1|/q1 + |a2|/q2)
+        #              M. A. Arain and G. Mueller, On the Interference of
+        #              two Gaussian beams and their ABCD Matrix Representation
+        #              optics express 19183 vol 17, No. 21, 2009
+        #      in general, you have to decompose into a decomposition of higher
+        #      order modes and combine there
+        #
+        # may be necessary:
+        # -  define coordinates of each point on each element
+        #  1) physical optics: calculate currents generated on each element by incident Gaussian beam
+        #  2) ray trace to next optical element
+        #  3) calculate scattered fields
+        #  4) represent as Gaussian beam / higher order modes
+        #      (interaction integral of of each mode with reflector current)
+        # -  repeat 1-4 for each element
+        pass
+# end class
+
 
 class dichroic(qoptics_abcd):
     """
@@ -1023,6 +1282,21 @@ class dichroic(qoptics_abcd):
         Ltot = l3   # [m], total physical thickness of plate
         mur, rho = self._mats('Brass', metal=True)
 
+#        outputs = self.plate(freq=freq, diameter=D, spacing=S, thickness=Ltot, th=th, shape='hex')
+        self.response(freq=freq, diameter=D, spacing=S, thickness=Ltot, th=th, plotit=True, wd=None)
+
+    @staticmethod
+    def max_hole_spacing(freq, epsr_plate, A, th):
+        """
+        Hole spacing must be small enough to ensure first grating lobe response
+        lies at an angle of 90 degrees to the direction of propagation.
+        """
+        wavelength = cc/freq
+
+        #    For an air-dielectric:
+        return 1.0*wavelength/A/(_np.sqrt(epsr_plate) + _np.sin(th*_np.pi/180.0))
+#        return 1.1547*wavelength/(1+_np.sin(th))   # reference 2
+
     @staticmethod
     def guide_cutoff_lower(D):
         """
@@ -1059,6 +1333,45 @@ class dichroic(qoptics_abcd):
 
         return wl/(1.0-(wl/(1.706*D))**2.0)
 
+    @staticmethod
+    def guide_electrical_length(freq, epsr, D, thickness):
+        """
+        Electrical length of each cavity
+        """
+        guide_wl = dichroic.guide_wavelength(freq, epsr, D)
+
+        return 2.0*_np.pi*thickness/guide_wl  # [np/m]
+
+    @staticmethod
+    def attenuation_dielectric(freq, epsr, loss_tangent, D):
+        """
+        Attenuation due to the dielectric in the waveguide
+        """
+        wavelength = cc/freq
+        guide_wl = dichroic.guide_wavelength(freq, epsr, D)
+
+        return _np.pi*(guide_wl/wavelength)*loss_tangent/wavelength  # [np/m]
+
+    @staticmethod
+    def attenuation_wgwall(freq, epsd, rho, mur, D):
+        """
+        Attenuation constant due to dissipation in conducting cavity walls
+        """
+        wavelength = cc/freq
+        guide_wl = dichroic.guide_wavelength(freq, epsd, D)
+
+        rhoe = 1.724e-8 # ohm-meter = resistivity of copper
+        alphc = 1.5e-4 * _np.sqrt(mur*rho/rhoe)*_np.sqrt(epsd/wavelength) * (guide_wl/(D*wavelength))
+        alphc *= 0.420 + (wavelength/(1.706*D))**2.0
+        return alphc  # [np/m]
+
+    @staticmethod
+    def square_guide_array():
+        return 1.0 # square guide array
+
+    @staticmethod
+    def hexagonal_guide_array():
+        return 0.5 * _np.sqrt(3.0)  # hexagonal guide array
 
     def plate(self, freq, diameter, spacing, thickness, th, shape='hex'):
         """
@@ -1079,13 +1392,15 @@ class dichroic(qoptics_abcd):
 
         #       For radius>0.28*spacing   and spacing<0.57 * wavelength
         if shape.lower().find('hex')>-1:
-            A = 0.5 * _np.sqrt(3.0)  # hexagonal guide array
+            A = dichroic.hexagonal_guide_array()
         elif shape.lower().find('sq')>-1:
-            A = 1   # square guide array
+            A = dichroic.square_guide_array()
         # end if
 
-        fc1 = 1e-9*1.841*cc/(_np.pi*2.0*radius)  # [GHz], designed lower cut-off frequency
-        fc2 = 1e-9*cc/(spacing*A)                # [GHz], diffraction limited upper cut-off frequency
+        # Cut-off frequencies
+        fc1 = self.guide_cutoff_lower(diameter)       # [GHz], designed lower cut-off frequency
+        fc2 = self.guide_cutoff_upper(spacing, A=A)   # [GHz], diffraction limited upper cut-off frequency
+
         # wlco = cc/(1e9*fc1)/_np.sqrt(eps3)
 
         J1prime = jvp(v=1, z=4.0*_np.pi*radius/(_np.sqrt(3)*spacing), n=1)
@@ -1103,16 +1418,21 @@ class dichroic(qoptics_abcd):
         for ii in range(len(freq)):
 
             AA = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness)))
-            BB = 1.0/  (1.0 - 1j*(A[ii]+B[ii]*      coth(beta[ii]*thickness)))
+            BB = 1.0/  (1.0 - 1j*(A[ii]+B[ii]* 1.0/cmath.tanh(beta[ii]*thickness)))
+
             # Reflection
             R2[ii] = AA.copy() + BB.copy() - 1.0
 
             # Transmission
             T2[ii] = AA.copy() - BB.copy()
 
-            # R2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) + 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness))) - 1.0
-            # T2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) - 1.0/(1.0-1j*(A[ii]+B[ii]*coth(beta[ii]*thickness)))
+            # R2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) + 1.0/(1.0-1j*(A[ii]+B[ii]*1.0/cmath.tanh(beta[ii]*thickness))) - 1.0
+            # T2[ii] = 1.0 / (1.0 - 1j*(A[ii]+B[ii]*cmath.tanh(beta[ii]*thickness))) - 1.0/(1.0-1j*(A[ii]+B[ii]*1.0/cmath.tanh(beta[ii]*thickness)))
             # if self.verbose:    print(_np.abs(R2[ii]), _np.abs(1-T2[ii]))
+
+            # Insertion delay - Phase delay caused by guide (degrees)
+
+        # end for
 
         # For oblique incidence, there is a correction here:
         porosity = _np.pi*(2.0*radius)**2.0 / (2.0*_np.sqrt(3)*spacing**2.0)
@@ -1123,8 +1443,8 @@ class dichroic(qoptics_abcd):
         # R2_perp = R2*_np.cos(th*_np.pi/180.0)**(2.0*(1.0-porosity))
         # R2_parr = R2*_np.cos(th*_np.pi/180.0)**(1.5*(1.0-porosity))
 
-        phperp = _np.arctan(_np.imag(T2perp) /_np.real(T2perp))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
-        phparr = _np.arctan(_np.imag(T2parr) /_np.real(T2parr))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
+#        phperp = _np.arctan(_np.imag(T2perp) /_np.real(T2perp))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
+#        phparr = _np.arctan(_np.imag(T2parr) /_np.real(T2parr))*180.0/_np.pi - 360.0*thickness*_np.cos(th*_np.pi/180.0)/wavelength  # degrees
 
         T2perp = _np.abs(T2perp)
         T2parr = _np.abs(T2parr)
@@ -1132,8 +1452,8 @@ class dichroic(qoptics_abcd):
 #        R2perp = _np.abs(R2perp)
 #        R2parr = _np.abs(R2parr)
 
-        R2perp = 1.0-T2perp
-        R2parr = 1.0-T2parr
+#        R2perp = 1.0-T2perp
+#        R2parr = 1.0-T2parr
 
         if self.verbose:
             print("Dichroic plate characteristics: ")
@@ -1154,29 +1474,30 @@ class dichroic(qoptics_abcd):
              freq = 1e9*_np.linspace(100.0, 250.0, 250)
          # endif
 
-         T2perp, T2parr, por, fc1, fc2 = self.dichroic_plate(freq, diameter, spacing, thickness, th)
+         T2_perp_140, T2_parr_140, _, _, _ = self.plate(freq, diameter=diameter, spacing=spacing, thickness=thickness, th=th, shape='hex')
+         T2perp, T2parr, porosity, fc1, fc2 = self.plate(freq, diameter=diameter, spacing=spacing, thickness=thickness, th=th, shape='hex')
 
          T2_perp_log = 20*_np.log10(T2perp)
          T2_parr_log = 20*_np.log10(T2parr)
-         #por_log = 10*_np.log10(porosity)
+         por_log = 10*_np.log10(porosity)
 
          # ======================================= #
 
          delimiter = '\n'
          hdr = "Dichroic plate characteristics: Filled with %s"%(matname,) + delimiter
-         hdr += "Hexagonal hole pattern (%i holes): diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(ncircles, 1e3*D, 1e3*S, 1e3*l3) + delimiter
-         hdr += "filter cut-offs: %3.1f<f<%3.1f GHz"%(fco, fcd) + delimiter
+         hdr += "Hexagonal hole pattern (%i holes): diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(ncircles, 1e3*diameter, 1e3*spacing, 1e3*thickness) + delimiter
+         hdr += "filter cut-offs: %3.1f<f<%3.1f GHz"%(fc1, fc2) + delimiter
          hdr += "Power transmission (perpendicular): %3.1f dB@%3.0f GHz"%(T2_perp_140, 140) + delimiter
          hdr += "Power transmission (parallel): %3.1f dB@%3.0f GHz"%(T2_parr_140, 140) + delimiter
          hdr += "Porosity limit (%0.2f): %3.1f dB"%(porosity, por_log) + delimiter
 
          print(hdr)
 
-         filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
+         filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fc1,1e3*diameter,1e3*spacing,1e3*thickness))
          _np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
 
-         filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fco,1e3*D,1e3*S,1e3*l3))
-         _np.savetxt(filnam, (freq,T2_parr,T2_perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
+         filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fc1,1e3*diameter,1e3*spacing,1e3*thickness))
+         _np.savetxt(filnam, (freq,T2parr,T2perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
 
 
 
@@ -1198,18 +1519,18 @@ class dichroic(qoptics_abcd):
 
              _plt.xlabel('frequency [GHz]')
              _plt.ylabel(r'|T$^2$| [dB]')
-             _plt.title(r'Power Transmission Coefficient: f$_{c,o}$<%3.1f, f$_{c,d}$<%3.1f GHz'%(fco,fcd) )
-             _plt.axvline(x=fco, linestyle='--', color='k')
-             _plt.axvline(x=fcd, linestyle='--', color='k')
+             _plt.title(r'Power Transmission Coefficient: f$_{c,o}$<%3.1f, f$_{c,d}$<%3.1f GHz'%(fc1,fc2) )
+             _plt.axvline(x=fc1, linestyle='--', color='k')
+             _plt.axvline(x=fc2, linestyle='--', color='k')
              _plt.axhline(y=por_log, linestyle='--', color='k')
 
-             _plt.text(x=fco+5, y=-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm, \n thickness=%2.1f mm'%(1e3*D, 1e3*S, 1e3*l3))
+             _plt.text(x=fc1+5, y=-15, s='Hexagonal hole pattern: \n diameter=%2.2f mm, \n spacing=%2.2f mm, \n thickness=%2.1f mm'%(1e3*diameter, 1e3*spacing, 1e3*thickness))
 
 
 
          if wd is not None and plotit and _os.path.exists(wd):
              # wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
-             hfig.savefig(_os.path.join(wd,'DichroicNotch_%3.1fGHz_%3.1fGHz.png'%(fco[0],fco[1])), dpi=200, transparent=True)
+             hfig.savefig(_os.path.join(wd,'DichroicNotch_%3.1fGHz_%3.1fGHz.png'%(fc1[0],fc2[1])), dpi=200, transparent=True)
 
 
 #
@@ -1377,15 +1698,27 @@ def qme_telescope_op11():
     tst = qoptics(freq=freq, wo=w0y, zz=zz)
 
     # d23 = f1 + f2 = 1250e-3î
-    d1 = 175e-3;        f1 = 171.4e-3;  th1 = 45.0    # [deg], R1=176.34mm, R2=6080.8mm; a=3.128.6m, b=0.73222 m      # analysis:ignore
-    d2 = d1 + 180e-3;   f2 = 1e8;       th2 = 45.0    # [deg], planar mirror                                   # analysis:ignore
-    d3 = d2 + 1071e-3;  f3 = 1078.6e-3; th3 = 90.0-63.55  # ellipsoidal mirror,  # analysis:ignore
-    d4 = d3 + 189.3e-3; f4 = 1e8;       th4 = 13.16   # [deg]                       # analysis:ignore
+    d1 = 175e-3;       f1 = 171.4e-3;        # R1=176.34mm, R2=6080.8mm; a=3.1286m, b=0.73222 m
+    d2 = d1 + 180e-3; # planar mirror
+    d3 = d2 + 1071e-3; f3 = 1078.6e-3  # ellipsoidal mirror,
+    d4 = d3 + 189.3e-3 # planar mirror
 
-    tst.add_element(tst.thinlens(f1), d1, '1 Ellipsoidal\nMirror')
-    tst.add_element(tst.thinlens(f2), d2, '2 Plane\nMirror')
-    tst.add_element(tst.thinlens(f3), d3, '3 Ellipsoidal\nMirror')
-    tst.add_element(tst.thinlens(f4), d4, '4 Plane\nMirror')
+    # type = reflector, combiner, splitter
+    #  number of unique paths through system ~ 1 + splitter + 2*combiner
+    element1 = {'incangle': 45.00, 'shape':'ellipsoid', 'type':'reflector', 'dim':127.3e-3, "amaj":3.1286, "bmin":0.73222}
+    element2 = {'incangle':-45.00, 'shape':'planar',    'type':'reflector', 'dim':127.3e-3}
+    element3 = {'incangle':-26.45, 'shape':'ellipsoid', 'type':'reflector', 'dim':100.0e-3} #, "amaj":, "bmin":}
+    element4 = {'incangle': 29.74, 'shape':'planar',    'type':'reflector', 'dim':100.0e-3}
+
+    tst.add_element(tst.thinlens(f1),   d1, '1 Ellipsoidal\nMirror')
+    tst.add_element(tst.planarmirror(), d2, '2 Plane\nMirror')
+    tst.add_element(tst.thinlens(f3),   d3, '3 Ellipsoidal\nMirror')
+    tst.add_element(tst.planarmirror(), d4, '4 Plane\nMirror')
+
+#    tst.add_element_params(**element1)
+#    tst.add_element_params(**element2)
+#    tst.add_element_params(**element3)
+#    tst.add_element_params(**element4)
 
 #    d1 = 175e-3; f1 = 171.37e-3; th1=45  # [deg], R1=176.34mm, R2=6080.8mm; a=3.128.6m, b=0.73222 m      # analysis:ignore
 #    d2 = d1+189e-3;  th2 = 45            # [deg], planar mirror                                   # analysis:ignore
@@ -1401,6 +1734,7 @@ def qme_telescope_op11():
     tst.BeamPropagation()
     _ax1, _ax2 = tst.plot()
     tst.plotrays()
+#    tst.layout()
 # end def
 
 def qme_telescope_op12():
@@ -1424,7 +1758,7 @@ def qme_telescope_op12():
 
     # d23 = f1 + f2 = 1250e-3î
     # 175e-3 - 53e-3 = 122e-3 to aperture of antenna
-    d1 = 175e-3-53e-3;  f1 = 171.4e-3;  th1 = 45.0    # [deg], R1=176.34mm, R2=6080.8mm; a=3.128.6m, b=0.73222 m      # analysis:ignore
+    d1 = 122e-3;  f1 = 171.4e-3;  th1 = 45.0    # [deg], R1=176.34mm, R2=6080.8mm; a=3.128.6m, b=0.73222 m      # analysis:ignore
     d2 = d1 + 180e-3;   f2 = 1e8;       th2 = 45.0    # [deg], planar mirror                                   # analysis:ignore
     d3 = d2 + 1071e-3;  f3 = 1078.6e-3; th3 = 90.0-63.55  # ellipsoidal mirror,  # analysis:ignore
     d4 = d3 + 189.3e-3; f4 = 1e8;       th4 = 13.16   # [deg]                       # analysis:ignore
@@ -1616,6 +1950,7 @@ def abcd_prop_test():
     freqs, w0, z0, hom, purity = __qme_op12_antenna__()
 
     freq = 140e9
+    wavelength = cc/freq
 #    w0x = _np.interp(freq, freqs, w0[0,:]) # 4.31e-3
     w0y = _np.interp(freq, freqs, w0[1,:]) # 3.44e-3
 #    z0x = _np.interp(freq, freqs, z0[0,:]) # 147.35e-3    # waist position from aperture
@@ -1629,8 +1964,10 @@ def abcd_prop_test():
     tst_y = qoptics(freq=freq, wo=w0y, zz=zz)
 #    tst_y.rays = [0.02, 0*_np.pi/180.0]
     tst_y.rays = []
+    angrange = wavelength/(_np.pi*w0y)*_np.linspace(0, 1, num=5, endpoint=True)
     for ii in range(5):
-        tst_y.rays.append([0.025*ii, 0*_np.pi/180.0])
+#        tst_y.rays.append([0.025*ii, 0*_np.pi/180.0])
+        tst_y.rays.append([0.0, angrange[ii]])
     # end for
 
 #    tst_y.BeamPropagation()
@@ -1640,7 +1977,7 @@ def abcd_prop_test():
     # curved mirror at 45 degrees
     th = 45*_np.pi/180.0
     Rmirror  = 0.10   # for an elliptic mirror flen = R1*R2/(R2+R1), if R2>>R1, then flen = R1
-    tst_y.add_element(tst_y.reflection_curvedmirror(Rmirror, th, 'vertical'), 0.15, 'Mirror 1')
+    tst_y.add_element(tst_y.sphericalmirror(Rmirror, th, 'vertical'), 0.15, 'Mirror 1')
 
 #    tst_y.BeamPropagation()
 #    _ax1, _ax2 = tst_y.plot()
@@ -1661,6 +1998,7 @@ def abcd_prop_test():
     # thick lens
     eps_r, loss_tangent = tst_y._mats(material='teflon')
     tst_y.add_element(tst_y.thicklens(1.0, _np.sqrt(eps_r), 0.07, 0.7, 0.05), 0.85, 'Teflon lens')
+
 
     tst_y.BeamPropagation()
     _ax1, _ax2 = tst_y.plot()
@@ -1950,6 +2288,13 @@ if __name__=="__main__":
 
     qme_telescope_op11()
     qme_telescope_op12()
+#
+#    qo = qoptics_abcd()
+#    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 30e-3, 20e-3, 200e-3, 300e-3, grazing_angle=15*_np.pi/180.0, trunclevel=5.0, phi=0)
+#    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 3.2e-3, 20e-3, 200e-3, 300e-3, grazing_angle=45*_np.pi/180.0, trunclevel=5.0, phi=-_np.pi/6.0)
+#    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 3.2e-3, 20e-3, 200e-3, 300e-3, grazing_angle=60*_np.pi/180.0, trunclevel=5.0, phi= _np.pi/3.0)
+#    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 3.2e-3, 20e-3, 100e-3, 500e-3, grazing_angle=30*_np.pi/180.0, trunclevel=5.0, phi=-_np.pi/3.0)
+#    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(142.75e9, 3.2e-3, 34.83e-3, 175e-3, 601.06e-3, grazing_angle=45*_np.pi/180.0, trunclevel=5.0, phi=0.0)
 # end if
 
 
