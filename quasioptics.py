@@ -725,7 +725,7 @@ class qoptics_abcd(qoptics_params):
 
         print('foc %6.4f, R1 %6.4f, R2 %6.4f, d1 %6.4f, d2 %6.4f, amaj %6.4f, bmin %6.4f, ecc %6.4f'%(foc, R1, R2, d1, d2, amaj, bmin1, ecc))
         if plotit:
-            qo.elliptic_mirror_design_plot(R1, R2, amaj, bmin1, ecc, **kwargs)
+            qo.elliptic_mirror_design_plot(R1, R2, amaj, bmin1, ecc, mirlength=2*wproj,**kwargs)
         # end if
         return foc, M, (amaj, bmin1), wproj
 
@@ -744,6 +744,7 @@ class qoptics_abcd(qoptics_params):
 
         _ax1 = kwargs.setdefault('_ax1', None)
         phi = kwargs.setdefault('phi', 0.0)
+        mirlength = kwargs.setdefault('mirlength', 0)
 
         import matplotlib.pyplot as _plt
         if _ax1 is None:
@@ -761,7 +762,8 @@ class qoptics_abcd(qoptics_params):
         rmir = qo.rotated_ellipse(amaj, ecc, theta, phi)
 #        rmir = qo.rotated_ellipse(bmin, ecc, theta, phi)
 
-        pmir = [rmir*_np.cos(theta), rmir*_np.sin(theta)]
+        pmir = _np.vstack((rmir*_np.cos(theta), rmir*_np.sin(theta))).T
+        pmir = _np.atleast_2d(pmir)
 
         # ================ #
 
@@ -780,12 +782,10 @@ class qoptics_abcd(qoptics_params):
         _ax1.plot(elli[:,0], elli[:,1], 'k--')  # ellipse
 
         # plot mirror position on ellipse
-        _ax1.plot(pmir[0], pmir[1], 'ko')
+        _ax1.plot(pmir[:, 0], pmir[:, 1], 'ko')
 
         _ax1.plot([0, R1*_np.cos(theta)], [0, R1*_np.sin(theta)], 'r-')
-#        _ax1.plot([0, R1*_np.cos(theta+phi)], [0, R1*_np.sin(theta+phi)], 'r-')
-        _ax1.plot([pmir[0], 2*c*_np.cos(phi)], [pmir[1], 2*c*_np.sin(phi)], 'r-')
-#        _ax1.plot([pmir[0], pmir[0]+R2*_np.cos()], [pmir[1], pmir[1]+R2*_np.sin()], 'r-')
+        _ax1.plot([rmir*_np.cos(theta), 2*c*_np.cos(phi)], [rmir*_np.sin(theta), 2*c*_np.sin(phi)], 'r-')
 
         _ax1.set_aspect('equal', 'box')
 #        _min = 1.1*_np.min(_np.min(elli))
@@ -2281,13 +2281,13 @@ def abcd_prop_test():
 
 if __name__=="__main__":
     qme_op11_antenna()
-    qme_op12_antenna()
+#    qme_op12_antenna()
     Plaum_20200212()
 
-    qo = abcd_prop_test()
+#    qo = abcd_prop_test()
 
-    qme_telescope_op11()
-    qme_telescope_op12()
+#    qme_telescope_op11()
+#    qme_telescope_op12()
 #
 #    qo = qoptics_abcd()
 #    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 30e-3, 20e-3, 200e-3, 300e-3, grazing_angle=15*_np.pi/180.0, trunclevel=5.0, phi=0)
