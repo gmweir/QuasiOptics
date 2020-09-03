@@ -2280,13 +2280,13 @@ def abcd_prop_test():
 
 
 if __name__=="__main__":
-    qme_op11_antenna()
+#    qme_op11_antenna()
 #    qme_op12_antenna()
-    Plaum_20200212()
+#    Plaum_20200212()
 
 #    qo = abcd_prop_test()
 
-#    qme_telescope_op11()
+    qme_telescope_op11()
 #    qme_telescope_op12()
 #
 #    qo = qoptics_abcd()
