@@ -1,0 +1,24 @@
+clean up down to only neccesary and tested code
+make sure all .m files can take inputs in any form
+test validity of gradient code relative to analytic solution for two to three layers
+fix gddfast?
+implement full exact gradient code
+does material dispersion just cause warping of reflectivity spectrum?
+implement absorption
+try optimization with FD gradient for baseline (document!)
+find relevant/efficient optimization methods
+parametrize by interface location, not layer thickness
+investigate analytic hessian computation
+can hessian be used to estimate manufacturing tolerances?
+Franz' low wavelength resonance idea
+no-AR mirror pairs
+finish analytic synthesis part
+different double chirp matching functions
+air->effective-index direct impendence matching
+optimize mirror in simulated cavity
+consider individual mirror GD errors
+learn CVS for fiddling with optimization
+learn gcc feedback optimization
+use static variable to keep computations between calls in MEX routines
+is anything integregable?
+fix inconsistency of array definition between MEX and MATLAB code

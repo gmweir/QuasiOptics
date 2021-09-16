@@ -1,0 +1,1 @@
+[dlows, dhighs] = dsfrombraggwl(ms, ybs, nl, nh)
