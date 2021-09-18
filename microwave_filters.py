@@ -289,9 +289,6 @@ def impedance_inverter(Kimp):
 # ==========================================================================
 
 """
-
-Chapter 1 basics:
-
 ideal lowpass filter
     magnitude of gain is unity in passband, zero in the stopband
        |H(jomega)| = 1 |omega|<|omegac|
@@ -342,6 +339,14 @@ Approximation for the amplitude:
     Equiripple characteristics provides optimum selectivity for a given degree
 
 
+In a linear, time-invariant system, the relationship between voltage and
+current can be expressed in terms of their Laplace transforms:
+    V(p) = Z(p)*I(p)
+
+    Z(p) is the input impedance of the network. For a finite lumped network
+    (not infinite in extent), Z is a rational function of p and may be
+    expressed as the ratio of two polynomials:
+            Z(p) = N(p)/D(p)
 """
 
 
