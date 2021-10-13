@@ -142,3 +142,12 @@ def wave_impedance_TEmn(freq, a, b, m=1, n=0, mu=None, eps=None):
     if mu is None: mu = mu0 # end if
     return 2.0*_np.pi*freq*mu/betaz_TE(freq, a, b, m=m, n=n, mu=mu, eps=eps)
 
+
+
+
+
+
+
+
+
+# ====================================================================== #
