@@ -347,6 +347,10 @@ current can be expressed in terms of their Laplace transforms:
     (not infinite in extent), Z is a rational function of p and may be
     expressed as the ratio of two polynomials:
             Z(p) = N(p)/D(p)
+            
+    For passive networks, since all physical networks give rise to real responses for real input, and conservation of energy applies, Z(p) is real for p real. Re{Z(p)}>0 for Re{p}>0. Then the coefficients of N(p) and D(p) are real, and Z(p) has no poles or zeros in the right half-plane (N,P are Hurwitz polynomials). 
+    
+    
 """
 
 
