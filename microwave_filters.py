@@ -10,6 +10,13 @@ import matplotlib.pyplot as _plt
 
 # from FFT import hilbert
 
+try:
+    from . import rectangular_waveguide as _rw
+except:
+    from QO import rectangular_waveguide as _rw
+# end try
+
+
 """
 
 General filter terminology:
@@ -231,6 +238,7 @@ def percBW(freqc):
     """
     return
 
+
 def ReturnLoss(S11):
     """
     mathematically it is the negative of the magnitude of the reflection
@@ -253,6 +261,30 @@ def InsertionLoss(S21):
     """
     return -20.0*_np.log10(_np.abs(S21))
 
+# ==========================================================================
+"""
+
+"""
+
+def transfer_losslessTEM(beta, l, Zo, Yo):
+    """
+    Transfer function of a lossless transmission line to the TEM mode
+    (assuming sinusoidal excitation)
+
+    beta - [rad/m] - propagation constant of the line (guide wavenumber)
+    l - [m] - length of the transmission line
+    Zo - [Ohms] - characteristic impedance of the ilne
+    Yo - [Mohrs] - characteristic admittance of the line
+
+    """
+    return _np.matrix([[_np.cos(beta*l), 1j*Zo*_np.sin(beta*l)], [1j*Yo*_np.sin(beta*l), _np.cos(beta*l)]])
+
+
+def richards_transform():
+    """
+    s -> j*omega -> j*alpha*tan(theta)
+    """
+    pass
 
 
 # ==========================================================================
@@ -857,6 +889,30 @@ Quick refresher:                            Evaluating residues
 
 """
 
+# ==========================================================================
+
+
+class prototypeFilter(object):
+    """
+
+    Initialization Inputs
+        La    - [dB] - stopband insertion loss
+        Lr    - [dB] - passband return loss
+        BW    - [MHz] - passband bandwidth (3 dB)
+        delta - [MHz] - stopband bandwidth (point at which stopband insertion loss is achieved)
+
+    """
+    def __init__(self, La = 3, Lr = 20, BW = 100, delta = None):
+        if delta is None:
+            delta = 2*BW
+        # end if
+
+        pass
+    # end def __init__
+
+
+# end class
+
 
 # ==========================================================================
 
@@ -935,6 +991,7 @@ class ChebyshevLPF(object):
 
         self.Krn = _np.zeros((N,), dtype=_np.float64) # Admittance of each stage of the filter
         self.Crn = _np.zeros_like(self.Krn) # Capacitance of each stage of filter
+        self._eta = __eta_prototype(N, Lr)
 
         for nn in range(N):
             rr = nn+1
@@ -1061,10 +1118,14 @@ def Cheb2CombLine_Capacitance(omega0, alpha, theta, Cshunt):
 
 
 
-def prototype_LPF():
+def prototype_LPF(La=30, Lr=3, S=4, N=None):
     # La = 30 # [dB], stopband insertion loss
     # Lr = 3  # [dB], passband return loss
-    NotImplementedError()
+
+    # 1-Ohm low pass filter based ona  Chebyshev filter characteristic
+    chebLPF = ChebyshevLPF(La=La, Lr=Lr, S=S, N=N)
+
+
 
 #def stopbad
 
@@ -1146,11 +1207,11 @@ def example451():
         return TN
     # end def
 
-    def S12_squared(eps, omega):
+    def S12_squared(eps, omega, N):
         return 1.0/(1.0+eps*eps*(_np.cos(N*_np.arccos(omega)))**2.0)
 
-    def S11_squared(eps, omega):
-        return 1.0-S12_squared(eps,omega)
+    def S11_squared(eps, omega, N):
+        return 1.0-S12_squared(eps,omega, N)
 
     def minN(La, Lr, S):
         """ Return the minimum order required for a Chebyshev filter  """
@@ -1239,9 +1300,10 @@ def example451():
     # ============================ #
     #
     # plot the response of the general low pass filter
-    ff = _np.linspace(-1, 1.0, num=100, endpoint=True)
-    S12 = S12_squared(epsrl, ff)
-    S11 = S11_squared(epsrl, ff)
+    # ff = _np.linspace(-1, 1.0, num=100, endpoint=True)
+    ff = _np.linspace(0, 2.5, num=100, endpoint=True)
+    S12 = S12_squared(epsrl, ff, N)
+    S11 = S11_squared(epsrl, ff, N)
 
     _plt.figure()
     _ax1 = _plt.subplot(2,1,1)
@@ -1249,7 +1311,8 @@ def example451():
     _ax2 = _plt.subplot(2,1,2, sharex=_ax1)
     _ax2.plot(ff, 10*_np.log10(S11), '-')
 #    _ax1.set_xlim((0,2))
-    _ax1.set_xlim((-1,1))
+    # _ax1.set_xlim((-1,1))
+    # _ax1.set_xlim((0, 1))
     _ax1.set_ylabel('|S12| [dB]')
     _ax2.set_ylabel('|S11| [dB]')
     _ax1.set_title('Prototype LPF')
@@ -1382,9 +1445,118 @@ def example451():
     return Lbpf, Cbpf
 # end def
 
+def cot(x):
+    """
+    cotangent
+    """
+    return 1.0/_np.tan(x)
+
+
+def physical_filter():
+    C1 = C4 = 15.9894e-12 # pF
+    C2 = C3 = 38.1670e-12 # pF
+
+    Y1 = Y4 = 9.1327 # mhor
+    Y2 = Y3 = 22.0488 # mhor
+
+    K12 = K34 = 0.026
+    K23 = 0.031
+
+    fo = 2.5e9
+    l = 12e-3
+    b = 24e-3
+    d = 8e-3
+
+    # d = 2*d
+
+    for Kij in [K12, K23, K34]:
+        Sij = Scomb_ij(fo, l, b, d, Kij)
+        print(Sij)
+        # 0.07346126821028004
+        # 0.07212307820975238
+        # 0.07346126821028004
+
+    # end for
+
+    for Cij in [C1, C2]:
+        # Mg = Mgap(d, Cij)
+        # print(Mg)
+        # -0.002130268362364526
+        # -0.002130268588630083
+
+        Mg = Mgap(d, 1e12*Cij)
+        print(Mg)
+    # end for
+# end def
+
+
+
+
+def loading_capacitance(theta0, Zs, Zr, fc):
+    """
+    Loading capacitance: Cl
+
+    Zs - system impedance (50 Ohms)
+    Zr - Resonator impedance (equation 11)
+    theta0 - electrical length --> must be less than 90 degrees (less than pi/4)
+    fc - center frequency
+    """
+    return Zs*_np.tan(theta0)/(Zs*Zr*2.0*_np.pi*fc)
+
+def inverse_loadCap(Cl, Zs, Zr, fc):
+    """
+    return the electrical length based on the loading capacitance
+    """
+    return _np.arctan( Cl*(Zs*Zr*2.0*_np.pi*fc)/Zs )
+
+def ewall(b,d):
+    """
+    return the distance to the wall from the resonator edge that matches the cavity diameter
+
+    equation 12
+    """
+    return 0.5*(b+d)
+
+def Mgap(d, Cij):
+    """
+    returns the resonator gap between the lid and resonator to provide the necessary capacitance:
+        given the capacitance and resonator diameter
+
+    equation 13
+    """
+    return 0.695*d*d/(100*Cij-2.61*d)
+
+
+def Scomb_ij(fo, l, b, d, Kij):
+    """
+    Return the distance between each resonaor (i to j) based on
+    Kij - the admittance invertor value,
+    electrical length (frequency and resonator length, l)
+    b - cavity diameter
+    d - resonator diameter
+
+    equation 14
+    """
+    ftheta = f_theta(theta(fo, l))
+    Sij = (b/1.37) * ((0.91*b/d) + 0.048 - _np.log10( 4*ftheta*Kij/_np.pi ))
+    return Sij
+
+def theta(fo, l):
+    """
+    equation 16
+    electrical length: ... should probably use guide wavelength here
+    """
+    wavelength = 3e8 / fo  # free space wavelength
+    return 2.0*_np.pi*l/wavelength
+
+def f_theta(theta):
+    """ equation 15 """
+    return 0.5*(1.0+2*theta/_np.sin(2*theta))
 
 
 
 if __name__ == '__main__':
-    Lbpf, Cbpf = example451()
+    # Lbpf, Cbpf = example451()
+
+    physical_filter()
 # end if
