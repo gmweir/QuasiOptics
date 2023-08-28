@@ -3,6 +3,11 @@
 Created on Wed Jul 12 10:44:33 2017
 
 @author: gawe
+
+
+Note:  implementing "Point Transfer Matrices"
+https://pubs.aip.org/aapt/ajp/article/91/6/449/2891435/Beyond-the-ABCDs-A-better-matrix-method-for
+
 """
 
 # ========================================================================== #
@@ -60,7 +65,7 @@ class qoptics_params(Struct):
         tmp = self.lambda0/self.Nrefr/(_np.pi*tmp)
         self._wz = _np.sqrt(tmp)
         self._wo = self._wz/_np.sqrt( 1.0+(self.zz/self._zr)**2.0 )
-        self.fwhm = self._wz/_np.sqrt(2*_np.log(2))
+        self.fwhm = _np.sqrt(2*_np.log(2))*self._wz
     @qz.deleter
     def qz(self):
         del self._qz
@@ -183,34 +188,170 @@ class qoptics_params(Struct):
     def RayleighRange(self):
         self._zr = _np.pi*self.Nrefr*self.wo**2.0 / self.lambda0
 
+    def ConfocalParameter(self):
+        self._br = 2*self._zr
+
     def BeamWaist(self):
         self._wo = _np.sqrt(2.0*self.zr/self.kvec)
 
     def RadiusCurvaturePhaseFront(self):
-        self.Rz = self.zz*( 1.0 + (self.zr/self.zz)**2.0)
+        self._Rz = self.zz*( 1.0 + (self.zr/self.zz)**2.0)
 
     def SpotSize(self):
         self._wz = self.wo * _np.sqrt( 1.0 + (self.zz/self.zr)**2.0)
 
+    def FullWidthHalfMax(self):
+        self._fwhm = _np.sqrt(2*_np.log(2)) * self.SpotSize()
+
+    # ====================================================================== #
+    # ================== Wave-propagation formulas ========================= #
+
+    """
+    Phasor:
+
+    The complex electric-field amplitude (phasor) for a monochromatic beam:
+        Ec(r, z) = E0 (w0/w_z) exp(-r^2/w_z^2)exp(1j*phase)
+
+        phase = k*z - arctan(z/zR) + k*r^2/(2*R_z)
+              = (plane-wave) - (guoy phase) + (wave-front bending)
+
+    Propagation:
+
+    The electric-field (or magnetic field) propagates in time with a dependence,
+    exp(i*omega*t)
+
+        E(r, z, t) = Ec(r, z) * exp( 1j*omega*t)
+
+    Instantaneous Amplitude:
+    The instantaneous field magnitude is found by takign the real-part of the result
+
+    E(r, z) = Re{ E(r, z) }
+
+    Intensity:
+
+    I(r, z) = |E(r, z)|^2/ 2*eta = Io (wo/w_z)^2 exp( -2r^2 / w_z^2 )
+        eta - wave impedance --> 377 Ohms for free-space
+        Io = |Eo|^2/2eta - intensity of beam at its waist
+           = 2*P0 / (pi * wo^2)
+
+           P0 is the total power carried by the beam
+
+    ** Note:  These formulas work along the beam-axis and for circular
+    Gaussian beams. Use the 2D version below for elliptical beams.
+    """
+
+    def GaussianPhase(self):
+        self.GouyPhaseShift()
+        self.PlaneWavePhaseShift()
+
+        if hasattr(self, 'rr'):
+            self.WavefrontBendingPhaseShift()
+
+            nr = len(self.rr)
+            nz = len(self.zz)
+            self.phase = _np.zeros((nz, nr), dtype=_np.float64)
+
+            for ii in range(nr):
+                # add in the wavefront bending
+                self.phase[:, ii] = self._plphz - self._gphz + self._wbphz[:, ii]
+            # end for
+        else:
+            self.phase = self._plphz-self._gphz
+        # end if
+
+
     def GouyPhaseShift(self):
+        """
+        The second part of the phase of a Gaussian beam is due to the
+        superposition of modes propagating in different directions.
+        - a gaussian beam is basically a superposition of many plane-waves
+          travelling in different directions with slightly different phases.
+
+        It is the axial phase-shift that occurs in a converging wave when it
+        passes through its focus.
+
+        This causes the distances between the wavefronts to increase slightly
+        over that of a planewave. The overall phase-shift after passing through
+        the focus is pi
+        """
         self._gphz = _np.arctan(self.zz/self.zr)
 
+
     def PlaneWavePhaseShift(self):
+        """
+        The first part of the phase of a Gaussian beam is due to wave propagation.
+        This is identical to the propagation of a plane wave.
+        """
         self._plphz = self.kvec*self.zz
 
+
     def WavefrontBendingPhaseShift(self):
-        nr = len(self.rr)
-        nz = len(self.zz)
+        """
+        The third part of the phase of a Gaussian beam is due to wave-front bending
+        """
         kvec = _np.copy(self.kvec)
         rr = _np.copy(self.rr)
         Rz = _np.copy(self.Rz)
-        self._wbphz = _np.zeros((nz, nr), dtype=_np.float64)
-        for ii in range(nr):
+        self._wbphz = _np.zeros((self.nz, self.nr), dtype=_np.float64)
+        for ii in range(self.nr):
             # wavefront bending
             self._wbphz[:,ii] = kvec*rr[ii]**2.0/(2.0*Rz)
         # end for
 
-    def power(self, rr=None, P0=1.0):
+
+    def RelativeFieldStrength(self):
+        """
+        This should give the same result as the (more explicit) formula in
+        the ComplexAmplitude function.
+
+        u(r, z = 1/q_z * exp( -i*k*r^2/(2*q_z) )
+        """
+        # Uv(x,y,z) = Av*exp(-1j*Phase(x,y,z))
+
+        if hasattr(self, 'rr'):
+            # qz ~ (nz,)
+            # r ~ (nr,)
+            # u_rz ~ (nz, nr)
+
+            u_rz = _np.zeros((self.nz, self.nr), dtype=_np.complex128)
+            for ii in range(self.nr):
+                u_rz[:, ii] = (1.0/self.qz) * _np.exp(-1j*self.kvec*self.rr[ii]**2.0 / (2.0*self.qz) )
+            return u_rz
+        else:
+            return 1.0/self.qz
+
+
+    def ComplexAmplitude(self):
+        """"
+        returns the wave electric field from the fundamental Gaussian beam (TEM00)
+
+        Should be the same as RelativeFieldStrength
+        """
+        zz = self.zz.copy()
+
+        # Update the beam radius, curvature of phase fronts and Guoy phase shift
+        self.RaylieghRange()
+        self.SpotSize()
+        self.RadiusCurvaturePhaseFront()
+        self.GaussianPhase()
+
+        # === #
+
+        if hasattr(self, 'rr'):
+            rr = self.rr.copy()
+
+            # although the matrix way might be smarter, it is harder to debug
+            Erz = _np.zeros((self.nz, self.nr), dtype=_np.complex128)
+            for ii in range(self.nr):
+                # This is the engneering phase convention
+                Erz[:,ii] = (self.wo/self.wz)*_np.exp(-rr[ii]**2.0/self.wz**2.0)*_np.exp(-1j*self.phase[:,ii])
+            # end for
+            return Erz
+        else:
+            return (self.wo/self.wz)*_np.exp(-1j*self.phase)
+
+
+    def power(self, rr, P0=1.0):
         """
         Stores the beam power as a function of beam radius and distance
 
@@ -238,27 +379,6 @@ class qoptics_params(Struct):
             self.Irz[:,ii] = self.I0*(self.wo/self.wz)**2.0 * _np.exp(-2.0*self.rr[ii]**2.0/self.wz**2.0)
         return self.Irz
 
-    def GaussianPhase(self):
-        self.GouyPhaseShift()
-        self.PlaneWavePhaseShift()
-
-        if hasattr(self, 'rr'):
-            self.WavefrontBendingPhaseShift()
-
-            nr = len(self.rr)
-            nz = len(self.zz)
-            self.phase = _np.zeros((nz, nr), dtype=_np.float64)
-
-            for ii in range(nr):
-                # add in the wavefront bending
-                self.phase[:, ii] = self._plphz - self._gphz + self._wbphz[:, ii]
-            # end for
-        else:
-            self.phase = self._plphz-self._gphz
-        # end if
-
-#    def ComplexAmplitude(self):
-        # Uv(x,y,z) = Av*exp(-1j*Phase(x,y,z))
 
     # ======= #
 
@@ -351,8 +471,64 @@ class qoptics_params(Struct):
 
 # end class qoptics_base
 
-class qoptics_abcd(qoptics_params):
 
+class RTM(qoptics_params):
+    """ Ray tranfer matrices
+
+    functions
+        propagate_ray : propagate a ray defined by height above the optical
+            axis and propagation angle through an optical system described
+            by an ABCD matrix
+
+        propagate_beamparameter : propagate the complex beam parameter that
+            describes a gaussian beam through an optical system described
+            by an ABCD matrix
+
+        ABCD : Ray transfer matrix definition
+
+    Implemented RTM's
+        free space / uniform media
+
+        refraction at a planar interface
+
+        refraction at a curved interface
+
+        propagation through a thin lens
+
+        reflection from a planar mirror
+
+        reflection from a spherical (R>0 or R<0) mirror
+
+        propagation through a thick lens of defined index of refaction
+
+        refraction through a thick plate
+
+        propagation / refraction through a right-angle-prism
+
+        propagation / refraction through multiple prisms
+
+    Utility / compound RTM's
+        thinlens_freespace : A thin lens followed by free-space
+
+        freespace_thinlens : free space propagation followed by a thin lens
+
+        freespace_thinlens_freespace:  propagation through a thin lens with
+            defined input and output propagation
+
+        two_thin_lens : two thin lenses wtih differing focal lengths forming
+            a compound system
+
+        thinlens_focallength : return the focal length of a thin lens defined
+            by the radius of curvature of two surfaces
+
+        thicklens_focallength : return the focal length of a thick lens defined
+            by the radius of curvature of two surfaces
+
+        elliptic_mirror : return the ABCD matrix of the "thin lens" for
+            an elliptic mirror
+
+
+    """
     # ============= Built-in geometric optics ray matrices ================= #
 
     def propagate_ray(self, ABCD, r1, th1):
@@ -364,6 +540,7 @@ class qoptics_abcd(qoptics_params):
         """
         arr = matmul(ABCD, _np.array([r1, th1], dtype=float) )
         return arr[0], arr[1]   # r2, th2
+
 
     def propagate_beamparameter(self, ABCD, qz):
         """
@@ -389,6 +566,7 @@ class qoptics_abcd(qoptics_params):
         """
         return _np.array( [[A, B],[C, D]], dtype=complex)
 
+
     def uniform_media(self, d):
         """
         Propagation through uniform media: ABCD matrix for a Gaussian beam
@@ -398,6 +576,7 @@ class qoptics_abcd(qoptics_params):
             ABCD - [m], ABCD matrix for beam propagation through uniform media a distance d
         """
         return self.ABCD(1.0, d, 0.0, 1.0)
+
 
     def freespace(self, d):
         """
@@ -409,6 +588,7 @@ class qoptics_abcd(qoptics_params):
         """
         return self.uniform_media(d)
 
+
     def refraction_planarinterface(self, n1, n2):
         """
         Refraction at a flat interface between two media
@@ -416,6 +596,7 @@ class qoptics_abcd(qoptics_params):
             final media index of refraction - n2
         """
         return self.ABCD(1.0, 0.0, 0.0, n1/n2)
+
 
     def refraction_curvedinterface(self, R, n1, n2):
         """
@@ -428,6 +609,7 @@ class qoptics_abcd(qoptics_params):
         """
         return self.ABCD(1.0, 0.0, (n1-n2)/(R*n2), n1/n2)
 
+
     def thinlens(self, flen):
         """
         ABCD matrix for a Gaussian beam propagation through a thin lens
@@ -438,6 +620,7 @@ class qoptics_abcd(qoptics_params):
         """
         return self.ABCD(1.0, 0.0, -1.0/flen, 1.0)
 
+
     def planarmirror(self):
         """
         Ray transfer matrice for reflection from a flat mirror
@@ -445,7 +628,8 @@ class qoptics_abcd(qoptics_params):
         Only valid for mirrors perpendicular to the ray.
             (identity matrix)
         """
-        return self.ABCD(1.0, 0.0, 0.0, 1.0)
+        return self.ABCD(1.0, 0.0, 0.0, -1.0)
+
 
     def sphericalmirror(self, R, th, plane='horizontal'):
         """
@@ -467,6 +651,7 @@ class qoptics_abcd(qoptics_params):
         # end if
 
         return self.ABCD(1.0, 0.0, -2.0/Re, 1.0)
+
 
     def thicklens(self, n1, n2, R1, R2, t):
         """
@@ -501,6 +686,7 @@ class qoptics_abcd(qoptics_params):
                                       self.uniform_media(t))
         return matmul( ABCD, self.refraction_curvedinterface(R1, n1, n2) )
 
+
     def refraction_thickplate(self, n1, n2, t):
         """
         ABCD matrix for a Gaussian propagating through a thick plate
@@ -512,6 +698,7 @@ class qoptics_abcd(qoptics_params):
         """
         ABCD = matmul(self.refraction_planarinterface(n2, n1), self.uniform_media(t))
         return matmul( ABCD, self.refraction_planarinterface(n1, n2))
+
 
     def rightangleprism(self, th, psi, d, n):
         """
@@ -525,12 +712,14 @@ class qoptics_abcd(qoptics_params):
         k = _np.cos(psi)/_np.cos(th)
         return self.ABCD(k, d/(n*k), 0.0, 1.0/k)
 
+
     def multiple_prism(self, M, B):
         """
         M is the total beam magnification: M=k1*k2*k3...*kr
         B is the total optical proapgation distance of the multiple prism extender
         """
         return self.ABCD(M, B, 0.0, 1.0/M)
+
 
     def thinlens_freespace(self, flen, d):
         """
@@ -544,6 +733,7 @@ class qoptics_abcd(qoptics_params):
         # D = 1
         return matmul(self.freespace(d), self.thinlens(flen))
 
+
     def freespace_thinlens(self, flen, d):
         """
         propagate through free space a distance d
@@ -556,6 +746,7 @@ class qoptics_abcd(qoptics_params):
         # D = 1-d/f
         return matmul(self.thinlens(flen), self.freespace(d))
 
+
     def freespace_thinlens_freespace(self, d1, flen, d2):
         """
         propagate a distance 'd1' into a thin lens with focal length 'flen'
@@ -563,6 +754,11 @@ class qoptics_abcd(qoptics_params):
         """
         return matmul(self.freespace(d2), self.freespace_thinlens(flen, d1))
         # return matmul(self.thinlens_freespace(flen, d2), self.freespace(d1))
+
+
+    def two_thin_lens(self, f1, d, f2):
+        return self.ABCD(-f2/f1, f1+f2, 0.0, -f1/f2)
+
 
     # ============= Basic stuff ================= #
 
@@ -579,6 +775,7 @@ class qoptics_abcd(qoptics_params):
 #        inverse_flen *= n-1.0
         return 1.0/inverse_flen
 
+
     def thicklens_focallength(self, r1, r2, n, t):
         """
         inputs
@@ -592,14 +789,408 @@ class qoptics_abcd(qoptics_params):
         inverse_flen = (n-1.0)*(1.0/r2 - 1.0/r1) + (n-1.0)**2.0*t/(n*r1*r2)
         return 1.0/inverse_flen
 
+
     def elliptic_mirror(self, r1, r2):
         """
-
+        ABCD matrix for a Gaussian beam reflecting from an elliptic mirror
+        defined by the radii of curvature of the
+        Input
+            flen - [m], focal length of the thin lens
+        Output
+            ABCD - [m], ABCD matrix for beam propagation through free space a distance d
         """
         foc = self.thinlens_focallength(r1, r2)
         return self.thinlens(foc)
 
-    def rectangular_horn(self, freq, distance, R_A, A_h, B_h, awg):
+
+    # ============= #
+
+# reproduce this class for backwards compatibility
+class qoptics_abcd(RTM):
+    pass
+
+
+class PTM(qoptics_abcd):
+    """
+    This is for handling decentered or tilted optical elements
+
+    Homoegenous representation for rays and points
+        rays - expressed as column vectors (c, a, b)^T
+            corresponding to the line satisfying :  a*x + b*y + c = 0
+
+        points - expressed as collumn vectors [w, x, y]^T
+            corresponding to the physical point :  [x/w, y/w]
+
+    Conventions:
+        points are normalized if w= 1
+
+        rays are normalized if a^2 + b^2 = 1
+
+    Rules:
+        1) A ray passes through a point IFF the vector dot product is zero
+            r \cdot p = 0
+
+            example //
+                0 = r . p = [c, a, b] . [w, x, y] = cw + ax + by
+                  = c + a(x/w) + b(y/w) <- eqn for a point on line
+
+        2) The intersection point of two rays is their vector cross-product
+            r1 \cross r2 = p
+
+            example //  require that the point lies on both rays
+                0 = r1 . p = c1w + a1x + b1y
+                0 = r2 . p = c2w + a2x + b2y
+                --> simplify the system
+                    a1x + b1y = -c1w
+                    a2x + b2y = -c2w
+                --> substitute and solve for x, y
+                    x = w (b1c2 - b2c1)/(a1b2 - a2b1)
+                    y = w (a2c1 - a1c2)/(a1b2 - a2b1)
+                --> form the cross-product of r1 and r2 to test Rule 2
+                r1 x r2 = [ a1b2 - a2b1,
+                            b1c2 - b2c1,
+                            a2c1 - a1 c2 ] = [wp, xp, yp]^T
+                    substitute [wp, xp, yp]^T into [w, x, y]^T to prove it
+
+        3) The ray vector connecting two points is the vector cross product
+           of the point vectors
+             r = p1 \cross p2
+
+            example //  the ray r=(c, a, b)^T must contain both points p1, p2
+                0 = r . p1 = cw1 + ax1 + by1
+                0 = r . p2 = cw2 + ax2 + by2
+                --> simplify the system
+                    ax1 + by1 = -cw1
+                    ax2 + by2 = -cw2
+                --> solve for a, b; then and compare to p1 x p2
+
+        4) Given three normalized finite points, the oriented area of their
+           enclosed triangle is
+             A = 0.5*(p1 \cross p2) \cdot p3
+
+           - positive if the poitns are listed going counter-clockwise
+             around the triangle
+
+           - if the three points are colinear, then
+             (p1 \cross p2) \cdot p3 = 0
+
+        5) If the vectors r and p are normalized according to the conventions
+           above then
+             d = r \cdot p
+           is the signed distance from the point to the ray
+           - positive if the point is on the "left" side of the ray
+           - negative if the point is on the "right" side of the ray
+
+
+    s.
+    https://pubs.aip.org/aapt/ajp/article/91/6/449/2891435/Beyond-the-ABCDs-A-better-matrix-method-for
+
+    ray - [-h, -m, 1]     (height slope)
+    pnt - [1, x, y]       ( coordinate positions)
+
+    Ideal points are pure directions or points on horizon (direction cosines)
+    idealpoint = [0, a, b]
+
+
+    """
+
+    # left-to-right ray
+    ray = lambda h, m: _np.ndarray([[-h],[-m],[1]], dtype=complex)
+
+    # point
+    point = lambda x, y: _np.ndarray([[1],[x],[y]], dtype=complex)
+
+    # ideal points represent pure directions or points on the horizon
+    idealpoint = lambda a, b: _np.ndarray([[0],[a],[b]], dtype=complex)
+
+    # matrix adjugate (this will fail in the unphysical case det(x)=0 )
+    # TODO handle exceptional case when det(x)=0 by performing cofactor expansion
+    adj = lambda x: x.det()*(x.inv().T)
+
+    # rotation of an array
+    Rot = lambda u: _np.array([[1, 0, 0], [0, _np.cos(u), -_np.sin(u)], [0, _np.sin(u), _np.cos(u)]], dtype=complex)
+
+    # Translation of a ray
+    T = lambda u, v: _np.array([[1, -u, -v], [0, 1, 0], [0, 0, 1]], dtype=complex)
+
+
+    @staticmethod
+    def normalize(p):
+        """ normalize point or ideal point """
+        if p[0,0] == 0: # "ideal" points normalize to direction cosines
+            return p/_np.sqrt(p[1,0]**2 + p[2,0]**2)
+        else: # real points
+            return p/p[0,0]
+
+
+    @staticmethod
+    def normalize_ray(r):
+        """
+        normalize ray
+        this makes the a and b coefficients the direction cosines and c the distance of the ray from the origin
+        see "idealpoint"
+        """
+        return r/_np.sqrt(r[1,0]**2 + r[2,0]**2)
+
+
+    @staticmethod
+    def standardize_ray(r):
+        """
+        standardize ray
+        puts the ray into point-slope form, like the ray defined at the top of this section
+        """
+        return r/_np.abs(r[2,0]) # using absolute value to preserve orientation
+
+
+    def rotate_ray(self, u, h, m):
+        """
+        Example of rotating a ray, defined by (h,m), by an angle u
+
+            Rot(u) * ray(h, m)
+            = [ -h, -mcos(u) - sin(u),  -msin(u) + cos(u) ]
+        """
+        return self.Rot(u)*self.ray(h, m)
+
+
+    def translate_ray(self, u, v, h, m):
+        """
+        Example of translating a ray, defined by (h, m), by a displacement (u, v)
+
+            T(u, v) * ray(h, m)
+            = [ -h + mu - v, -m, 1 ]
+        """
+        return self.T(u, v)*self.ray(h, m)
+
+
+    def translate_pnt(self, u, v, x, y):
+        """
+        The translation operator for points is defined by the adj method
+
+        adj(T(u, v)) forms the translation matrix for a point
+            [1  0  0 ]
+            [u  1  0 ]
+            [v  0  0 ]
+
+        adj(T(u, v)) * point(x, y)
+            [  1  ]
+            [ u+x ]
+            [ v+y ]
+        """
+        return self.adj(self.T(u, v))*self.point(x, y)
+
+
+    def rotate_pnt(self, u, x, y):
+        """
+        The rotation operator for points is defined by the adj method
+
+        adj(Rot(u)) forms the rotation matrix for a point
+            [1      0          0 ]
+            [0  cos(u)   -sin(u) ]
+            [0  sin(u)    cos(u) ]
+
+        adj(Rot(u)) * point(x, y)
+            [        1          ]
+            [ xcos(u) - ysin(u) ]
+            [ xsin(u) + ycos(u) ]
+        """
+        return self.adj(self.Rot(u)) * self.point(x, y)
+
+    # ============= Built-in geometric optics ray matrices ================= #
+
+    # def propagate_ray(self, PTM, r1, th1):  # TODO:!
+    #     """
+    #     Propagate a ray at an angle through an Point-Transfer-Matrix
+
+    #     from a ray perspective (r is distance from beam-axis, theta is angle
+    #     of approach), third axis is rotation?
+    #     """
+    #     arr = matmul(PTM, _np.array([r1, th1], dtype=float) )
+    #     return arr[0], arr[1], arr[2]   # r2, th2
+
+
+    # def propagate_beamparameter(self, ABCD, qz): # TODO:!
+    #     """
+    #     use the ray tranfser method to propagate a Gaussian beam parameter
+
+    #     Note:
+    #         q(z) = z + i*zr
+    #             zr = imag(q(z))
+    #     and
+    #         1/q(z) = 1/R(z) - i * lambda0 / (pi*N*w(z)^2)
+    #             R(z) = 1.0/real( 1/q(z) )
+    #             w(z) can be determined from the imaginary part
+    #             (this is done automatically)
+
+    #     """
+    #     #self.qz = matmul(ABCD, _np.asarray([self.qz, 1.0], dtype=complex) )
+    #     return (ABCD[0,0]*qz + ABCD[0,1])/(ABCD[1,0]*qz + ABCD[1,1])
+
+
+    def ABCD(self, A, B, C, D):
+        """
+        Return the ray matrix from geometric optics given its parts
+        """
+        return _np.array( [[A, B, 0], [C, D, 0], [0, 0, 1]], dtype=complex)
+
+
+    def Mprop(self, d):
+        """
+        Propagation through uniform media / free space:
+            ABCD matrix for a Gaussian beam
+        Input
+            d - [m], distance to propagate
+        Output
+            ABCD - [m], ABCD matrix for beam propagation through uniform media a distance d
+        """
+        return self.uniform_media(d)
+
+
+    def Msnell(self, n1, n2):
+        """
+        Refraction at a flat interface between two media
+            initial media index of refraction - n1
+            final media index of refraction - n2
+        """
+        return self.refraction_planarinterface(n1, n2)
+
+
+    def Msphr(self, n1, n2, R):
+        """
+        spherical refraction (R>0 for convex)
+
+        Refraction at a curved interface between two media (spherical boundary)
+            R - radius of curvature,
+                R>0 for convex  (center of curvature after interface)
+                R<0 for concave  (center of curvature in front of interface)
+            initial media index of refraction - n1
+            final media index of refraction - n2
+        """
+        return self.refraction_curvedinterface(self, R, n1, n2)
+
+
+    def Mmirror(self):
+        """
+        Reflection from a planar mirror
+
+        Ray transfer matrice for reflection from a flat mirror
+
+        Only valid for mirrors perpendicular to the ray.
+            (identity matrix)
+        """
+        return -1.0*self.planarmirror()
+
+
+    def Msphm(self, R, th=0, plane='horizontal'):
+        """
+        Reflection from a spherical mirror (R>0 is convex)
+
+        Ray transfer matrice for reflection from a curved (spherical) mirror
+            (valid in the paraxial approximation)
+            R is the radius of curvature of the spherical mirror
+
+            theta in radians, the mirror angle of incidence in the horizontal plane.
+
+            concave:  R>0
+            convex:   R<0
+        """
+        return -1.0*self.sphericalmirror(R, th, plane)
+
+
+    ...
+
+    def thinlens(self, flen):
+        """
+        ABCD matrix for a Gaussian beam propagation through a thin lens
+        Input
+            flen - [m], focal length of the thin lens
+        Output
+            ABCD - [m], ABCD matrix for beam propagation through free space a distance d
+        """
+        return self.ABCD(1.0, 0.0, -1.0/flen, 1.0)
+
+
+    def thicklens(self, n1, n2, R1, R2, t):
+        """
+        ABCD matrix for a Gaussian beam propagation through a thick lens
+        Input
+            n1 = refractive index outside of the lens
+            n2 = refractive index of the lens itself (inside the lens)
+            R1 = Radius of curvature of First surface (interface)
+            R2 = Radius of curvature of Second surface (interface)
+            t = center thickness of lens
+        Output
+            ABCD - [m], ABCD matrix for beam propagation through free space a distance d
+
+        Note that the implemented formulation is more general, but there is an
+        analytic check that works:
+
+          flat surface on left, curved surface, curvature (R), on right
+                ____________
+               |           )
+               |            )
+               |     n2      )     n1
+               |            )
+               |___________)
+                    t
+
+                    Mlens = |   1.0          t*n1/n2     |
+                            |  -1/f      1.0-n1*t/(n2*f) |
+                        f = (n2-1)*(1/R2-1/R1) + (n-1)**2.0 * t/(n2*R1*R2)
+                          = thicklens_focallength(R1, R2, n2)
+        """
+        ABCD = matmul(self.refraction_curvedinterface(R2, n2, n1),
+                                      self.uniform_media(t))
+        return matmul( ABCD, self.refraction_curvedinterface(R1, n1, n2) )
+
+
+    def refraction_thickplate(self, n1, n2, t):
+        """
+        ABCD matrix for a Gaussian propagating through a thick plate
+            n1 = refractive index outside of the plate
+            n2 = refractive index of the plate itself (inside the lens)
+            t = center thickness of plate
+        Output
+            ABCD - [m], ABCD matrix for beam propagation through free space a distance d
+        """
+        ABCD = matmul(self.refraction_planarinterface(n2, n1), self.uniform_media(t))
+        return matmul( ABCD, self.refraction_planarinterface(n1, n2))
+
+
+    def rightangleprism(self, th, psi, d, n):
+        """
+        k=cos(psi)/cos(th) is the beam expansion factor
+                th is angle of incidence
+                psi is the angle of refraction
+                d is the prism path length
+                n is the refractive index in the prism material
+            applies for orthogonal beam exit
+        """
+        k = _np.cos(psi)/_np.cos(th)
+        return self.ABCD(k, d/(n*k), 0.0, 1.0/k)
+
+
+    def multiple_prism(self, M, B):
+        """
+        M is the total beam magnification: M=k1*k2*k3...*kr
+        B is the total optical proapgation distance of the multiple prism extender
+        """
+        return self.ABCD(M, B, 0.0, 1.0/M)
+
+class GeneralizedBeamMatrices(object):
+    """
+
+
+    s. "Generalized Beam Matrices: Gaussian Beam Propagation in Misaligned
+    Complex Optical Systems", by A.A. Tovar and L. W. Casperson,
+    J. Opt Soc. Am. A 12, 1522-1533 (1995)
+    """
+    pass
+
+
+def HornAntenna(object):
+
+    @staticmethod
+    def rectangular_horn(freq, distance, R_A, A_h, B_h, awg):
         """
         inputs
             freq
@@ -640,14 +1231,17 @@ class qoptics_abcd(qoptics_params):
         ze = L_b/( 1 + ( L_b/z_rayE)**2 ) # (pg 167 eqn 7.30b)
         zz_horn = [ze, zh]
 
-        qoh = qoptics_abcd();   qoe = qoptics_abcd()
-        qoh.qz = qoh.propagate_beamparameter(qoh.freespace(distance+zh), qo_H)
+        qoe = qoptics_abcd()  # "E-plane"
         qoe.qz = qoe.propagate_beamparameter(qoe.freespace(distance+ze), qo_E)
+
+        qoh = qoptics_abcd()  # "H-plane"
+        qoh.qz = qoh.propagate_beamparameter(qoh.freespace(distance+zh), qo_H)
 
         return [qoe.wz, qoh.wz], [qoe.Rz, qoh.Rz], wo_horn, zz_horn
 
 
-    def corrugated_horn(self, freq, distance, DH, LH):
+    @staticmethod
+    def corrugated_horn(freq, distance, DH, LH):
         """
         inputs
             freq
@@ -666,8 +1260,6 @@ class qoptics_abcd(qoptics_params):
         ro = distance/( 1.0 - (1.0+distance/ri)/( wo/wi )**2.0 )
         return wo, ro
 
-    def two_thin_lens(self, f1, d, f2):
-        return self.ABCD(-f2/f1, f1+f2, 0.0, -f1/f2)
 
     @staticmethod
     def elliptic_mirror_design(freq, win, wout, d1, d2, grazing_angle=45, **kwargs):
@@ -729,15 +1321,18 @@ class qoptics_abcd(qoptics_params):
         # end if
         return foc, M, (amaj, bmin1), wproj
 
+
     @staticmethod
     def rotated_ellipse(amaj, ecc, theta, phi):
 #        return amaj*(1.0-ecc**2.0)/(1.0+ecc*_np.cos(theta - phi))
         return amaj*(1.0-ecc**2.0)/(1.0-ecc*_np.cos(theta - phi))
 
+
     @staticmethod
     def mirangle_on_ellipse(amaj, ecc, R1, phi):
 #        return _np.arccos((amaj*(1.0-ecc**2.0)/R1-1)/ecc) + phi
         return _np.arccos((1.0-amaj*(1.0-ecc**2.0)/R1)/ecc) + phi
+
 
     @staticmethod
     def elliptic_mirror_design_plot(R1, R2, amaj, bmin, ecc, **kwargs):
@@ -803,9 +1398,12 @@ class qoptics_abcd(qoptics_params):
 
 
 class qoptics(qoptics_abcd):
+
+
     def __init__(self, **kwargs):
         self.init(**kwargs)
     # end def __init__
+
 
     def init(self, **kwargs):
         # Calculate the free-space wavelength
@@ -843,6 +1441,7 @@ class qoptics(qoptics_abcd):
         # end if
     # end def
 
+
     def setMaterial(self, Nrefr=None, kvec=None):
         # Material specification:
         # You  must input either a refractive index, or a wave-vector to get a material
@@ -857,6 +1456,7 @@ class qoptics(qoptics_abcd):
         #end if
     # end def setMaterial
 
+
     def add_element(self, ABCD, zinsert, lbl=None):
         if not hasattr(self, '_ABCD'):
             self._ABCD = []
@@ -870,6 +1470,7 @@ class qoptics(qoptics_abcd):
         self._lbls.append(lbl)
     # end def
 
+
 #    def add_element_params(self, **kwargs):
 #
 #        if 'incangle' in kwargs and not hasattr(self, '_incangle'):
@@ -880,6 +1481,7 @@ class qoptics(qoptics_abcd):
 #            self._incangle.append(incangle)
 #        # end if
 #    # end def
+
 
     def reset_elements(self):
         delattr(self, '_ABCD')
@@ -899,6 +1501,9 @@ class qoptics(qoptics_abcd):
 
         zz = self.zz.copy()
         nz = len(zz)
+
+        # Note that "_zins" are the z positions of the insertion points for
+        # elements along the central path of the beam
         # append the end of the line to make the looping easier
         self._zins.append(zz[-1]-zz[0])
 
@@ -916,7 +1521,7 @@ class qoptics(qoptics_abcd):
             dz = (z - zz[0])   # [m], distance along beam center
 
             if dz<self._zins[0]:
-                # if the position is before the first element
+                # if the position is before the first element insert point
                 ABCD = self.freespace(dz)   # free-space up to this position
             else:
                 # if after the first element
@@ -963,6 +1568,7 @@ class qoptics(qoptics_abcd):
         # end if
     # end def
 
+
     def plot(self, _ax1=None, _ax2=None):
         import matplotlib.pyplot as _plt
         if _ax1 is None and _ax2 is None:
@@ -1006,6 +1612,7 @@ class qoptics(qoptics_abcd):
         return _ax1, _ax2
     # end def plot
 
+
     def plotrays(self, _ax1=None):
         import matplotlib.pyplot as _plt
 #        if _ax1 is None and _ax2 is None:
@@ -1044,38 +1651,6 @@ class qoptics(qoptics_abcd):
 
     # ====================================================================== #
 
-
-    def Efield_TEM00(self):
-        """"
-        returns the wave electric field from the fundamental Gaussian beam (TEM00)
-        """
-        rr = self.rr.copy()
-        zz = self.zz.copy()
-        self.nr = len(rr)
-        self.nz = len(zz)
-#        rv, zv = _np.meshgrid(rr, zz)
-#
-#        rr = _np.atleast_2d(rr)
-#        zz = _np.atleast_2d(zz)
-#        if _np.size(rr, axis=1) == 1:   rr = rr.T  # end if
-#        if _np.size(zz, axis=0) == 1:   zz = zz.T  # end if
-#        nr = self.nr
-#        nz = self.nz
-
-        # Update the beam radius, curvature of phase fronts and Guoy phase shift
-        self.RaylieghRange()
-        self.SpotSize()
-        self.RadiusCurvaturePhaseFront()
-        self.GaussianPhase()
-
-        # === #
-
-        # although the matrix way might be smarter, it is harder to debug
-        self.Erz = _np.zeros((self.nz, self.nr), dtype=_np.complex128)
-        for ii in range(self.nr):
-            self.Erz[:,ii] = (self.wo/self.wz)*_np.exp(-rr[ii]**2.0/self.wz**2.0)*_np.exp(-1j*self.phase[:,ii])
-        # end for
-        return self.Erz
 
 #    def elliptic_mirror_design(self):
         """
@@ -1119,6 +1694,8 @@ class qoptics(qoptics_abcd):
     """
     A thin wrapper around numpy's hermite polynomial module
     """
+
+
     def HermDecomp(self, nmodes=3, mmodes=3):
         """
         Decompose the gaussian beam into the Gauss-Hermite basis set in the
@@ -1137,7 +1714,10 @@ class qoptics(qoptics_abcd):
 #                    psi[nn,mm,ii,:,:] *=H
         raise NotImplementedError
 
+
     herm = _np.polynomial.hermite
+
+
     def HermPoly(coef, domain=None, window=None):
         raise NotImplementedError
         # pass
@@ -1166,11 +1746,16 @@ class qoptics(qoptics_abcd):
 #            trim([tol]) 	Remove trailing coefficients
 #            truncate(size) 	Truncate series to length size.
 #
+
     lagu = _np.polynomial.laguerre
+
+
     def LauguerrePoly(coef, domain=None, window=None):
         raise NotImplementedError
 
+
 class qoptics2d(qoptics):
+
 
     def add_element(self, coords, style='reflector', **kwargs):
         """
@@ -1182,6 +1767,7 @@ class qoptics2d(qoptics):
         """
         pass
     # end def
+
 
     def determine_paths(self):
         """
@@ -1285,6 +1871,7 @@ class dichroic(qoptics_abcd):
 #        outputs = self.plate(freq=freq, diameter=D, spacing=S, thickness=Ltot, th=th, shape='hex')
         self.response(freq=freq, diameter=D, spacing=S, thickness=Ltot, th=th, plotit=True, wd=None)
 
+
     @staticmethod
     def max_hole_spacing(freq, epsr_plate, A, th):
         """
@@ -1297,6 +1884,7 @@ class dichroic(qoptics_abcd):
         return 1.0*wavelength/A/(_np.sqrt(epsr_plate) + _np.sin(th*_np.pi/180.0))
 #        return 1.1547*wavelength/(1+_np.sin(th))   # reference 2
 
+
     @staticmethod
     def guide_cutoff_lower(D):
         """
@@ -1308,6 +1896,7 @@ class dichroic(qoptics_abcd):
             fco - [GHz], designed lower cut-off frequency
         """
         return 1e-9*1.841*cc/(_np.pi*D)
+
 
     @staticmethod
     def guide_cutoff_upper(S, A=1):
@@ -1323,6 +1912,7 @@ class dichroic(qoptics_abcd):
         """
         return 1e-9*cc/(S*A)
 
+
     @staticmethod
     def guide_wavelength(freq, epsr, D):
         """
@@ -1333,6 +1923,7 @@ class dichroic(qoptics_abcd):
 
         return wl/(1.0-(wl/(1.706*D))**2.0)
 
+
     @staticmethod
     def guide_electrical_length(freq, epsr, D, thickness):
         """
@@ -1341,6 +1932,7 @@ class dichroic(qoptics_abcd):
         guide_wl = dichroic.guide_wavelength(freq, epsr, D)
 
         return 2.0*_np.pi*thickness/guide_wl  # [np/m]
+
 
     @staticmethod
     def attenuation_dielectric(freq, epsr, loss_tangent, D):
@@ -1351,6 +1943,7 @@ class dichroic(qoptics_abcd):
         guide_wl = dichroic.guide_wavelength(freq, epsr, D)
 
         return _np.pi*(guide_wl/wavelength)*loss_tangent/wavelength  # [np/m]
+
 
     @staticmethod
     def attenuation_wgwall(freq, epsd, rho, mur, D):
@@ -1365,13 +1958,16 @@ class dichroic(qoptics_abcd):
         alphc *= 0.420 + (wavelength/(1.706*D))**2.0
         return alphc  # [np/m]
 
+
     @staticmethod
     def square_guide_array():
         return 1.0 # square guide array
 
+
     @staticmethod
     def hexagonal_guide_array():
         return 0.5 * _np.sqrt(3.0)  # hexagonal guide array
+
 
     def plate(self, freq, diameter, spacing, thickness, th, shape='hex'):
         """
@@ -1463,7 +2059,8 @@ class dichroic(qoptics_abcd):
 
         return T2perp, T2parr, porosity, fc1, fc2
 
-    def response(self, freq, diameter, spacing, thickness, th, plotit=True, wd=None):
+
+    def response(self, freq, diameter, spacing, thickness, th, plotit=True, wd=None, matname='air'):
          """
 
          """
@@ -1485,7 +2082,8 @@ class dichroic(qoptics_abcd):
 
          delimiter = '\n'
          hdr = "Dichroic plate characteristics: Filled with %s"%(matname,) + delimiter
-         hdr += "Hexagonal hole pattern (%i holes): diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(ncircles, 1e3*diameter, 1e3*spacing, 1e3*thickness) + delimiter
+         # hdr += "Hexagonal hole pattern (%i holes): diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(ncircles, 1e3*diameter, 1e3*spacing, 1e3*thickness) + delimiter
+         hdr += "Hexagonal hole pattern: diameter=%2.2f mm, spacing=%2.2f mm, thickness=%2.1f mm"%(1e3*diameter, 1e3*spacing, 1e3*thickness) + delimiter
          hdr += "filter cut-offs: %3.1f<f<%3.1f GHz"%(fc1, fc2) + delimiter
          hdr += "Power transmission (perpendicular): %3.1f dB@%3.0f GHz"%(T2_perp_140, 140) + delimiter
          hdr += "Power transmission (parallel): %3.1f dB@%3.0f GHz"%(T2_parr_140, 140) + delimiter
@@ -1493,13 +2091,11 @@ class dichroic(qoptics_abcd):
 
          print(hdr)
 
-         filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fc1,1e3*diameter,1e3*spacing,1e3*thickness))
-         _np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
+         # filnam = _os.path.join(wd,'DichroicPlate_holes_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fc1,1e3*diameter,1e3*spacing,1e3*thickness))
+         # _np.savetxt(filnam, 1e3*centers, fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n%6s 6%s'%('x[mm]', 'y[mm]') )
 
          filnam = _os.path.join(wd,'DichroicPlate_Transmission_%s_%3.1fGHz_d%0.2f_s%0.2f_t%0.1f.txt'%(matname, fc1,1e3*diameter,1e3*spacing,1e3*thickness))
          _np.savetxt(filnam, (freq,T2parr,T2perp), fmt='%6.3f', delimiter=' ', newline='\n', header=hdr + '\n %8s %8s %8s'%('freq[GHz]','T2[parr]', 'T2[perp]'))
-
-
 
 
          if plotit:
@@ -1570,6 +2166,7 @@ class dichroic(qoptics_abcd):
 #            # wd = _os.path.join('G://','Workshop','QMB','Documentation','Design','Dichroic Plate')
 #            hfig.savefig(_os.path.join(wd,'DichroicNotch_%3.1fGHz_%3.1fGHz.png'%(fco[0],fco[1])), dpi=200, transparent=True)
 
+
     @staticmethod
     def hexagon_generator(edge_length, offset):
       """Generator for coordinates in a hexagon."""
@@ -1581,6 +2178,7 @@ class dichroic(qoptics_abcd):
         x[ii] = offset[0] + edge_length*_np.cos(angle[ii]*_np.pi/180.0)
         y[ii] = offset[1] + edge_length*_np.sin(angle[ii]*_np.pi/180.0)
       return x, y
+
 
     @staticmethod
     def closest_approach(shape1, shape2):
@@ -1600,9 +2198,30 @@ class dichroic(qoptics_abcd):
 
 
 
+# # defining the zernike polynomials function
+# def zernike(c, r, theta, one):
+#     #zmxy: z = zernike, m = if present, following number is negative, x = m or azmuthal, and y = n or radial
+#     z00  = c[0] * one #pistion
+#     z11  = c[1] * (2 * r * np.cos(theta)) #x-tilt
+#     zm11 = c[2] * (2 * r * np.sin(theta)) #y-tilt
+#     z02  = c[3] * np.sqrt(3) * (-one + 2 * r**2)  #defocus
+#     zm22 = c[4] * np.sqrt(6) * (r**2 * np.sin(2 * theta)) #x-astig
+#     z22  = c[5] * np.sqrt(6) * (r**2 * np.cos(2 * theta)) #y-astig
+#     zm13 = c[6] * np.sqrt(8) * (3 * r**3 - 2 * r) * np.sin(theta) #x-coma
+#     z13  = c[7] * np.sqrt(8) * (3 * r**3 - 2 * r) * np.cos(theta) #y-coma
+#     zm33 = c[8] * np.sqrt(8) * r**3 * np.sin(3 * theta) #vertical trefoil
+#     z33  = c[9] * np.sqrt(8) * r**3 * np.cos(3 * theta) #horizontal trefoil
+
+#     z = z00 + z11 + zm11 + z02 + zm22 + z22 + zm13 + z13 + zm33 + z33
+
+#     return z
+
+
+
 
 # ========================================================================== #
 # ========================================================================== #
+
 
 def Basic_antenna_plot(freq, w0x, w0y, z0x, z0y):
     # axis along which to determine data: antenna position
@@ -1637,6 +2256,7 @@ def Basic_antenna_plot(freq, w0x, w0y, z0x, z0y):
     _plt.ylim([0, ylims[1]])
 # end def
 
+
 def Basic_antenna_thinlens_plot(freq, w0x, w0y, z0x, z0y, d1=0.1, flen=0.5):
 
     # axis along which to determine data: antenna position
@@ -1655,6 +2275,7 @@ def Basic_antenna_thinlens_plot(freq, w0x, w0y, z0x, z0y, d1=0.1, flen=0.5):
     _ax1, _ax2 = tst_x.plot()
     tst_y.plot(_ax1=_ax1, _ax2=_ax2)
 # end def
+
 
 def qme_telescope_design():
     """
@@ -1737,6 +2358,7 @@ def qme_telescope_op11():
 #    tst.layout()
 # end def
 
+
 def qme_telescope_op12():
     """
     """
@@ -1779,6 +2401,7 @@ def qme_telescope_op12():
     tst.plotrays()
 # end def
 
+
 def __Plaum_20200212__():
     freqs, wx, wy, zx, zy, hom, purity = [[] for _ in range(7)]
     freqs.append(129e9)
@@ -1804,6 +2427,7 @@ def __Plaum_20200212__():
     purity = _np.asarray(purity)
     return freqs, w0, z0, hom, purity
 
+
 def __qme_op11_antenna__():
     freqs, wx, wy, zx, zy, hom, purity = [[] for _ in range(7)]
     freqs.append(129e9)
@@ -1828,6 +2452,7 @@ def __qme_op11_antenna__():
     hom = _np.asarray(hom)
 #    purity = _np.asarray(purity)
     return freqs, w0, z0, hom, purity
+
 
 def __qme_op12_antenna__():
     """
@@ -1900,6 +2525,7 @@ def __qme_op12_antenna__():
     purity = _np.asarray(purity)
     return freqs, w0, z0, hom, purity
 
+
 def Plaum_20200212():
     # start by calculating the free space propagation from a horn a gaussian
     # beam of specified waist at a specfied position
@@ -1913,6 +2539,7 @@ def Plaum_20200212():
 
     Basic_antenna_plot(freq, w0x, w0y, z0x, z0y)
 # end def
+
 
 def qme_op11_antenna():
     """
@@ -1928,6 +2555,7 @@ def qme_op11_antenna():
 
     Basic_antenna_plot(freq, w0x, w0y, z0x, z0y)
 # end def
+
 
 def qme_op12_antenna():
     """
@@ -1945,6 +2573,7 @@ def qme_op12_antenna():
 
     Basic_antenna_plot(freq, w0x, w0y, z0x, z0y)
 # end def
+
 
 def abcd_prop_test():
     freqs, w0, z0, hom, purity = __qme_op12_antenna__()
@@ -2005,7 +2634,7 @@ def abcd_prop_test():
     tst_y.plotrays()
     return tst_y
 # end def
-# end def
+
 
 #def qme_op11_antenna_mirror():
 #    """
@@ -2142,138 +2771,292 @@ def abcd_prop_test():
 #
 #    print((amin, bmaj, flens, fperp, fparr))
 ## end def
-#
-#def qme_op12_antenna_mirror():
-#    """
-#    propagate a quasi-optical beam through free-space, to a mirror (thin lens), and onwards
-#    """
-#    from matplotlib.patches import Arc, Ellipse
-#    mirdim = 0.20  # 10 cm mirror dimension
-#    truncation_level = 3.0  # the mirror should be 5 x larger than the beam waist at its position (no. standard deviations)
-#    inc_angle = 45   # deg, angle of incidence on ellipsoidal mirror
-#    mirror2plasma = 0.40  # distance from mirror center to plasma focal point
-#
-#    freqs, w0, z0, hom, purity = __qme_op12_antenna__()
-#
-#    freq = 140e9
+
+
+def qme_op12_antenna_mirror():
+    """
+    propagate a quasi-optical beam through free-space, to a mirror (thin lens), and onwards
+    """
+    from matplotlib.patches import Arc, Ellipse
+    mirdim = 1.20  # 120 cm mirror dimension
+    #mirdim = 0.20  # 10 cm mirror dimension
+    truncation_level = 3.0  # the mirror should be 5 x larger than the beam waist at its position (no. standard deviations)
+    inc_angle = 45   # deg, angle of incidence on ellipsoidal mirror
+    mirror2plasma = 0.40  # distance from mirror center to plasma focal point
+
+    freqs, w0, z0, hom, purity = __qme_op12_antenna__()
+
+    freq = 140e9
+    w0x = _np.interp(freq, freqs, w0[0,:]) # 4.31e-3
+    w0y = _np.interp(freq, freqs, w0[1,:]) # 3.44e-3
+    z0x = _np.interp(freq, freqs, z0[0,:]) # 147.35e-3    # waist position from aperture
+    z0y = _np.interp(freq, freqs, z0[1,:]) # 161.42e-3
+
+    # axis along which to determine data
+    # zantenna = -z0x   # aperture of antenna
+    zantenna = -z0y   # aperture of antenna
+    zz = zantenna + _np.linspace(0, 0.50, num=250)
+
+    # start by calculating the free space propagation from a horn a gaussian
+    # beam of specified waist at a specfied position
+    # tst = qoptics(freq=freq, wo=w0x, zz=zz)
+    tst = qoptics(freq=freq, wo=w0y, zz=zz)
+    # tst.wo = w0x   # assignment also calculated Rayleigh range
+    # tst.zz = zz
+    tst.RayleighRange()         # calculate the confocal parameter / depth of focus
+    tst.ComplexBeamParameter()
+    tst.SpotSize()  # calculates beam radius along assigned vector "zz" asssuming free space
+
+    # ======================== #
+
+    # equations of an ellipse
+    #  R1 - input radii of curvature of wavefront. R1 is the distance between focii F1 (antenna) and the mirror center
+    #  R2 - output radii of curvature of wavefront. R2 is the distance between focii F2 (in plasma) and the mirror center
+    #  R1+R2 = 2bmaj;   where x^2/a^2 + y^2/b^2 = 1 and a<b
+    #  flens = R1*R2/(R1+R2)=R1*R2/(2bmaj)   is the focal length
+    #     R2 = 2*bmaj*flens / R1
+    bmaj = 0.5*mirdim
+
+    # use the calculated beam radius to determine the necessary mirror position
+    try:
+        ilens = _np.argwhere(tst.wz>=bmaj/truncation_level).squeeze()[0]
+
+        # flens = 10e-2
+        # flens = 11.8e-2
+        # flens = _np.copy(tst.zz[ilens])
+        zlens = _np.copy(tst.zz[ilens])
+        Rparr = _np.copy(tst.Rz[ilens])     # Radius of curvature in parallel to the plane of incidence
+        Rperp = bmaj**2.0/Rparr             # Radius of curvature in perpendicular to the plane of incidence
+        amin = Rperp
+    except:
+        # Trying to match radius of curvature of wavefront to the ellipse
+        from scipy.optimize import leastsq
+
+        def lsqfunc(params, x, y):
+            a, b = params
+            residual = y - (a*x**2  + b*x)
+            return residual
+
+
+    # F1 = _np.sqrt(
+    # ================ #
+    angle = _np.linspace(0, 2*_np.pi, 180)
+    elli = _np.vstack((bmaj*_np.cos(angle), amin*_np.sin(angle))).T
+
+    _plt.figure()
+    _plt.plot(elli[:,0], elli[:,1], 'k--')  # ellipse
+    _plt.plot(bmaj*_np.linspace(0.0, 1.0, num=30), _np.zeros((30,)), 'k-')
+    _plt.plot(_np.zeros((30,)), amin*_np.linspace(0.0, 1.0, num=30), 'k-')
+    _plt.text(x=0.5*bmaj, y=0.1*amin, s=r'$b_{maj}$=%6.4f'%(bmaj,))
+    _plt.text(x=0.1*bmaj, y=0.5*amin, s=r'$a_{min}$=%6.4f'%(amin,))
+    # _plt.plot(
+    # ================ #
+
+    fparr = 0.5*Rparr*_np.cos(inc_angle*_np.pi/180.0)
+    fperp = 0.5*Rperp/_np.cos(inc_angle*_np.pi/180.0)
+    # flens = fparr
+    flens = Rparr*mirror2plasma/(Rparr + mirror2plasma)
+
+    # qx = _np.zeros((len(zz),), dtype=complex)
+    qx = _np.copy(tst.qz)
+    for ii, zx in enumerate(zz):
+
+        if zx<=zlens:
+            # ABCD = tst.freespace(zx)
+            pass
+        elif zx>zlens:
+            ABCD = tst.freespace_thinlens_freespace(zlens, flens, zx-zlens)
+
+            qx[ii] = tst.propagate_beamparameter(ABCD, tst.qz[0])
+        # end if
+
+        # qx[ii] = tst.propagate_beamparameter(ABCD, tst.qz[0])
+    # end for
+    tst.qz = _np.copy(qx)
+
+    # ================== #
+
+    dvrg = (180.0/_np.pi)*tst.lambda0/(_np.pi*tst.Nrefr*tst.wo)
+
+    _plt.figure()
+    _plt.plot(zz, tst.wz, 'k-')
+    _plt.xlabel('distance along beam-axis')
+    _plt.ylabel('beam radius')
+    _plt.axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
+
+    xlims = _plt.xlim()
+    ylims = _plt.ylim()
+    _plt.xlim(xlims)
+    _plt.ylim([0, ylims[1]])
+
+    # ================== #
+
+    # fwhm = _np.sqrt(2*_np.log(2))*tst.wz        # FWHM of the quasi-optical beam
+    # kmax_antenna = 2.0*_np.pi/fwhm
+    kmax_antenna = 2.0*_np.pi/(2.0*tst.wz)      # attenuation begins here for rectangular antenna pattern
+    # kmax_antenna = 2.0*_np.sqrt(2)/(2.0*tst.wz)   # 3 dB point in wavenumber sensitivity
+    rhos = _np.sqrt(1.67e-27*1.6e-19*500)/(1.6e-19*2.4)
+
+    _, _ax = _plt.subplots(2,1, sharex='all', num='kres')
+    _ax[0].plot(zz, 1e-2*kmax_antenna, 'k-')
+    _ax[0].set_ylabel('Max. K resolved [cm-1]')
+    _ax[0].axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
+
+    _ax[1].plot(zz, kmax_antenna*rhos, 'k-')
+    _ax[1].set_ylabel(r'($k_\bot\rho_s$)_max: $\rho_s$=1e-3')
+    _ax[1].set_xlabel('distance along beam-axis')
+    _ax[1].axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
+
+    xlims = _ax[0].get_xlim()
+    ylims = _ax[0].get_ylim()
+    _ax[0].set_xlim(xlims)
+    _ax[0].set_ylim([0, ylims[1]])
+    ylims = _ax[1].get_ylim()
+    _ax[1].set_ylim([0, ylims[1]])
+
+    print((amin, bmaj, flens, fperp, fparr))
+# end def
+
+
+def LHD_constant_phase_mirror():
+    """
+    Constant phase mirror S. Kubo Fusion Engineering and Design 26 (1995) 319-324
+
+
+    """
+    pass
+
+def PFR_V6_2402114_2011(freq = 140.0e9):
+    """
+    LHD Design - Tsuchiya, PFR Volume 6, 2402114 (2011)
+
+    Constant phase concept [2]
+
+                                 |
+    wo_in, rw_in                                   wo_out, rw_out
+                                 |
+
+    Phase at position 'r' is
+        psi_in(r) = k\vec{r} \cdot \vec{e_in} - \eta ( (\vec{r} - \vec{rw_in})\cdot \vec{e_in}, wo_in  )
+                 + k(|r-rw_in|^2 - |(r-rw_in)\cdot e_in |^2) / ( 2R((r-rw_in)\cdot e_in, wo_in)  )
+
+        psi_out(r) = k\vec{r} \cdot \vec{e_out} - \eta ( (\vec{r} - \vec{rw_out})\cdot \vec{e_out}, wo_out  )
+                 + k(|r-rw_out|^2 - |(r-rw_out)\cdot e_out |^2) / ( 2R((r-rw_out)\cdot e_in, wo_out)  )
+
+        e_in, and e_out are propagating directional vectors
+        \eta is the phase shift  / phase correction term
+        R- is the radius of curvature
+
+    functions of distance between waist position and mirror, and waist:
+        phi(z, wo) = arctan( lambda*z / (pi*wo^2) )
+        R(z, wo) = z + (pi*wo^2/lambda)^2 / z
+
+    if the matching condition of the waist size at the mirror surface is satisfied, then
+    psi_in(r) + psi_out(r) = constant
+
+    when two phase-matched mirrors are used, the waist can be chosen at will.
+
+    example //
+
+    distance from waist to each Phase-matched mirror, when it is between them:
+            z1 - distance from M1 to waist
+            z2 - distance from M2 to waist
+            L - distance between M1 and M2
+
+            z1 = (pi*wo/lambda)* sqrt( w1^2 - wo^2 )
+            z2 = (pi*wo/lambda)* sqrt( w2^2 - wo^2 )
+            L = z1 + z2
+
+    wo can be solved for:
+        c = w1^2 * w2^2
+        s = w1^2 + w2^2
+        a = L^2*lambda^2 / pi^2
+
+        wo^2 = ( -as + 2a*sqrt( c-a^2) ) / ( 4c - s^2 - 4a )
+    """
+    def cc(w1, w2):
+        return (w1*w1)*(w2*w2)
+    def ss(w1, w2):
+        return w1*w1 + w2*w2
+    def aa(Ln, wavelength):
+        return (Ln*wavelength/_np.pi)**2.0
+
+    def getw0():
+        c = cc(w1, w2)
+        s = ss(w2, w2)
+        a = aa(Ln, wavelength)
+
+        w0 = _np.sqrt( (-a*s + 2*a*_np.sqrt(c-a*a)) / (4*c - s*s-4*a) )
+        return w0
+
+    wavelength = cc/freq
+
+def LHD_ECEI():
+    """
+    Tsuchiya, PFR Volume 13, 3402063 (2018)
+
+    6 mirror system
+    - critical aspect is window size:  25 mm radius aperture
+
+    -2500 mm  - Plasma
+        0 mm - M1 - Concave focusing mirror. 2500 mm from plasma focus (in-vacuum)
+      400 mm - M2 - Planar reflecting mirror 400 mm from M1 and the window (in-vacuum)
+      800 mm - P3 - vacuum barrier window (25 mm beam waist radius)
+      ___ mm - M4 - Planar reflecting mirror
+      ___ mm - M5 - Concave focusing mirror - 1300 mm from M4
+      ___ mm - M6 - PConcave fosuing mirror - 5238 mm from M5
+      ___ mm - P7 - LIA horn antenna        -  810 mm from M6
+
+    """
+    #
+    # freq = 50e9
+    # freq = 60e9
+    # freq = 70e9
+    freq = 140e9
+
+    # Approximate LIA horn antenna spot size (designed)
+    w0x = 14e-3
+    w0y = 14e-3
+
+    window_radius = 25e-3  # 25 mm window radius
+
+    # The diameter fo M4, M5, and M6 are 200 mm (1.5 sigma)
+
+
+    wavelength = cc/freq
 #    w0x = _np.interp(freq, freqs, w0[0,:]) # 4.31e-3
-#    w0y = _np.interp(freq, freqs, w0[1,:]) # 3.44e-3
+    w0y = _np.interp(freq, freqs, w0[1,:]) # 3.44e-3
 #    z0x = _np.interp(freq, freqs, z0[0,:]) # 147.35e-3    # waist position from aperture
-#    z0y = _np.interp(freq, freqs, z0[1,:]) # 161.42e-3
-#
-#    # axis along which to determine data
-#    # zantenna = -z0x   # aperture of antenna
-#    zantenna = -z0y   # aperture of antenna
-#    zz = zantenna + _np.linspace(0, 0.50, num=250)
-#
-#    # start by calculating the free space propagation from a horn a gaussian
-#    # beam of specified waist at a specfied position
-#    # tst = qoptics(freq=freq, wo=w0x, zz=zz)
-#    tst = qoptics(freq=freq, wo=w0y, zz=zz)
-#    # tst.wo = w0x   # assignment also calculated Rayleigh range
-#    # tst.zz = zz
-#    tst.RayleighRange()         # calculate the confocal parameter / depth of focus
-#    tst.ComplexBeamParameter()
-#    tst.SpotSize()  # calculates beam radius along assigned vector "zz" asssuming free space
-#
-#    # ======================== #
-#
-#    # equations of an ellipse
-#    #  R1 - input radii of curvature of wavefront. R1 is the distance between focii F1 (antenna) and the mirror center
-#    #  R2 - output radii of curvature of wavefront. R2 is the distance between focii F2 (in plasma) and the mirror center
-#    #  R1+R2 = 2bmaj;   where x^2/a^2 + y^2/b^2 = 1 and a<b
-#    #  flens = R1*R2/(R1+R2)=R1*R2/(2bmaj)   is the focal length
-#    #     R2 = 2*bmaj*flens / R1
-#    bmaj = 0.5*mirdim
-#
-#    # use the calculated beam radius to determine the necessary mirror position
-#    ilens = _np.argwhere(tst.wz>=bmaj/truncation_level).squeeze()[0]
-#    # flens = 10e-2
-#    # flens = 11.8e-2
-#    # flens = _np.copy(tst.zz[ilens])
-#    zlens = _np.copy(tst.zz[ilens])
-#    Rparr = _np.copy(tst.Rz[ilens])     # Radius of curvature in parallel to the plane of incidence
-#    Rperp = bmaj**2.0/Rparr             # Radius of curvature in perpendicular to the plane of incidence
-#    amin = Rperp
-#
-#    # F1 = _np.sqrt(
-#    # ================ #
-#    angle = _np.linspace(0, 2*_np.pi, 180)
-#    elli = _np.vstack((bmaj*_np.cos(angle), amin*_np.sin(angle))).T
-#
-#    _plt.figure()
-#    _plt.plot(elli[:,0], elli[:,1], 'k--')  # ellipse
-#    _plt.plot(bmaj*_np.linspace(0.0, 1.0, num=30), _np.zeros((30,)), 'k-')
-#    _plt.plot(_np.zeros((30,)), amin*_np.linspace(0.0, 1.0, num=30), 'k-')
-#    _plt.text(x=0.5*bmaj, y=0.1*amin, s=r'$b_{maj}$=%4.2f'%(bmaj,))
-#    _plt.text(x=0.1*bmaj, y=0.5*amin, s=r'$a_{min}$=%4.2f'%(amin,))
-#    # _plt.plot(
-#    # ================ #
-#
-#    fparr = 0.5*Rparr*_np.cos(inc_angle*_np.pi/180.0)
-#    fperp = 0.5*Rperp/_np.cos(inc_angle*_np.pi/180.0)
-#    # flens = fparr
-#    flens = Rparr*mirror2plasma/(Rparr + mirror2plasma)
-#
-#    # qx = _np.zeros((len(zz),), dtype=complex)
-#    qx = _np.copy(tst.qz)
-#    for ii, zx in enumerate(zz):
-#
-#        if zx<=zlens:
-#            # ABCD = tst.freespace(zx)
-#            pass
-#        elif zx>zlens:
-#            ABCD = tst.freespace_thinlens_freespace(zlens, flens, zx-zlens)
-#
-#            qx[ii] = tst.propagate_beamparameter(ABCD, tst.qz[0])
-#        # end if
-#
-#        # qx[ii] = tst.propagate_beamparameter(ABCD, tst.qz[0])
-#    # end for
-#    tst.qz = _np.copy(qx)
-#
-#    # ================== #
-#
-#    dvrg = (180.0/_np.pi)*tst.lambda0/(_np.pi*tst.Nrefr*tst.wo)
-#
-#    _plt.figure()
-#    _plt.plot(zz, tst.wz, 'k-')
-#    _plt.xlabel('distance along beam-axis')
-#    _plt.ylabel('beam radius')
-#    _plt.axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
-#
-#    xlims = _plt.xlim()
-#    ylims = _plt.ylim()
-#    _plt.xlim(xlims)
-#    _plt.ylim([0, ylims[1]])
-#
-#    # ================== #
-#
-#    # fwhm = _np.sqrt(2*_np.log(2))*tst.wz        # FWHM of the quasi-optical beam
-#    # kmax_antenna = 2.0*_np.pi/fwhm
-#    kmax_antenna = 2.0*_np.pi/(2.0*tst.wz)      # attenuation begins here for rectangular antenna pattern
-#    # kmax_antenna = 2.0*_np.sqrt(2)/(2.0*tst.wz)   # 3 dB point in wavenumber sensitivity
-#    rhos = _np.sqrt(1.67e-27*1.6e-19*500)/(1.6e-19*2.4)
-#
-#    _, _ax = _plt.subplots(2,1, sharex='all', num='kres')
-#    _ax[0].plot(zz, 1e-2*kmax_antenna, 'k-')
-#    _ax[0].set_ylabel('Max. K resolved [cm-1]')
-#    _ax[0].axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
-#
-#    _ax[1].plot(zz, kmax_antenna*rhos, 'k-')
-#    _ax[1].set_ylabel(r'($k_\bot\rho_s$)_max: $\rho_s$=1e-3')
-#    _ax[1].set_xlabel('distance along beam-axis')
-#    _ax[1].axvline(x=zantenna, linewidth=1.0, color='k', linestyle='--')
-#
-#    xlims = _ax[0].get_xlim()
-#    ylims = _ax[0].get_ylim()
-#    _ax[0].set_xlim(xlims)
-#    _ax[0].set_ylim([0, ylims[1]])
-#    ylims = _ax[1].get_ylim()
-#    _ax[1].set_ylim([0, ylims[1]])
-#
-#    print((amin, bmaj, flens, fperp, fparr))
-## end def
+    z0y = _np.interp(freq, freqs, z0[1,:]) # 161.42e-3
+
+    # axis along which to determine data: antenna position
+#    zantenna = -z0x if _np.abs(-z0x)>_np.abs(-z0y) else -z0y
+    zantenna = -z0y
+    zz = zantenna + _np.linspace(0, 10.00, num=2500)
+
+    tst = qoptics(freq=freq, wo=w0y, zz=zz)
+
+    # d23 = f1 + f2 = 1250e-3î
+    # 175e-3 - 53e-3 = 122e-3 to aperture of antenna
+    d1 = 122e-3;  f1 = 171.4e-3;  th1 = 45.0    # [deg], R1=176.34mm, R2=6080.8mm; a=3.128.6m, b=0.73222 m      # analysis:ignore
+    d2 = d1 + 180e-3;   f2 = 1e8;       th2 = 45.0    # [deg], planar mirror                                   # analysis:ignore
+    d3 = d2 + 1071e-3;  f3 = 1078.6e-3; th3 = 90.0-63.55  # ellipsoidal mirror,  # analysis:ignore
+    d4 = d3 + 189.3e-3; f4 = 1e8;       th4 = 13.16   # [deg]                       # analysis:ignore
+
+    tst.add_element(tst.thinlens(f1), d1, '1 Ellipsoidal\nMirror')
+    tst.add_element(tst.thinlens(f2), d2, '2 Plane\nMirror')
+    tst.add_element(tst.thinlens(f3), d3, '3 Ellipsoidal\nMirror')
+    tst.add_element(tst.thinlens(f4), d4, '4 Plane\nMirror')
+
+    tst.rays = []
+    angrange = wavelength/(_np.pi*w0y)*_np.linspace(0, 1, num=5, endpoint=True)
+    for ii in range(5):
+#        tst.rays.append([ii*0.001, 0.0])
+        tst.rays.append([0.0, angrange[ii]])
+    # end for
+    tst.BeamPropagation()
+    _ax1, _ax2 = tst.plot()
+    tst.plotrays()
 
 # ========================================================================== #
 # ========================================================================== #
@@ -2286,15 +3069,18 @@ if __name__=="__main__":
 
 #    qo = abcd_prop_test()
 
-    qme_telescope_op11()
+#    qme_telescope_op11()
 #    qme_telescope_op12()
 #
-#    qo = qoptics_abcd()
+    qo = qoptics_abcd()
 #    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 30e-3, 20e-3, 200e-3, 300e-3, grazing_angle=15*_np.pi/180.0, trunclevel=5.0, phi=0)
 #    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 3.2e-3, 20e-3, 200e-3, 300e-3, grazing_angle=45*_np.pi/180.0, trunclevel=5.0, phi=-_np.pi/6.0)
 #    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 3.2e-3, 20e-3, 200e-3, 300e-3, grazing_angle=60*_np.pi/180.0, trunclevel=5.0, phi= _np.pi/3.0)
 #    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(140.0e9, 3.2e-3, 20e-3, 100e-3, 500e-3, grazing_angle=30*_np.pi/180.0, trunclevel=5.0, phi=-_np.pi/3.0)
 #    foc, M, (amaj, bmin), wproj = qo.elliptic_mirror_design(142.75e9, 3.2e-3, 34.83e-3, 175e-3, 601.06e-3, grazing_angle=45*_np.pi/180.0, trunclevel=5.0, phi=0.0)
+
+
+#    qme_op12_antenna_mirror()
 # end if
 
 
